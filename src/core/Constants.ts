@@ -1,0 +1,80 @@
+/** Portrait gameplay composition — standard phone 9 : 16 (camera + letterboxed viewport) */
+export const GAMEPLAY_ASPECT_WIDTH = 9;
+export const GAMEPLAY_ASPECT_HEIGHT = 16;
+
+/** width / height */
+export const GAMEPLAY_ASPECT =
+  GAMEPLAY_ASPECT_WIDTH / GAMEPLAY_ASPECT_HEIGHT;
+
+import { PSX_SKY_BLUE } from "../art/Materials";
+
+/** Scene clear color — matches PSX fantasy sky */
+export const SKY_BLUE = PSX_SKY_BLUE;
+
+/** When true, levels come from the procedural map endpoint + adapter; otherwise legacy LevelGenerator. */
+export const USE_PROCGEN_ENDPOINT = true;
+
+/** Ball */
+export const BALL_RADIUS = 0.34;
+
+/** Drag / shot — clamp keeps aim vector sane at screen edges */
+export const MIN_DRAG_WORLD = 0.35;
+export const MAX_DRAG_WORLD = 5.5;
+/** Pull length (world units) that reaches 100% power — lower than clamp so typical sweeps can max out */
+export const POWER_FULL_DRAG_WORLD = 3.35;
+export const MAX_SHOT_SPEED = 96;
+
+/** Offer free skip after crawling at low speed away from the cup */
+export const STUCK_SKIP_PLANAR_SPEED = 0.11;
+export const STUCK_SKIP_SECONDS = 2.5;
+/** Min distance from hole center (world units) to count as “bad lie” */
+export const STUCK_SKIP_MIN_DIST_FROM_HOLE = 2.9;
+
+/** Physics */
+export const PHYS_FRICTION_PER_SEC = 2.8;
+export const PHYS_SETTLE_SPEED = 0.06;
+export const WALL_RESTITUTION = 0.82;
+/** Downward acceleration (world Y-up) */
+export const GRAVITY = 38;
+/** Upward kick vs planar shot speed — 0 = roll on deck without hop */
+export const SHOT_LOB_RATIO = 0;
+/** After landing on grass, damp vertical bounce — 0 = no post-landing hop */
+export const GROUND_RESTITUTION_Y = 0;
+/** Out-of-bounds when ball falls this far below the deck */
+export const FALL_OOB_Y = -16;
+
+/** Hole scoring: max planar speed to count (flyovers ignored); raised so cup swirl entries still drop */
+export const HOLE_SCORE_MAX_SPEED = 6;
+
+/** Cup “gravity well”: inward pull + mild swirl inside this radius (world xz) */
+export const HOLE_PULL_RADIUS = 3.85;
+export const HOLE_RADIAL_PULL_ACCEL = 48;
+/** Swirl fades out inside this distance so the ball doesn’t orbit the rim forever */
+export const HOLE_SWIRL_FADE_DIST = 0.72;
+export const HOLE_SWIRL_PULL_ACCEL = 16;
+/** Damps tangential velocity near the cup (kills stable loops) */
+export const HOLE_ORBIT_DAMP = 18;
+
+/** Course edge: forward (+z) runway past play bounds before OOB */
+export const OOB_Z_EXTRA = 7;
+
+/**
+ * Follow camera: elevated eye behind the ball (away from hole).
+ * Higher height vs horizontal offset ⇒ slightly more top-down view.
+ */
+export const GAMEPLAY_CAM_HEIGHT = 15.2;
+export const GAMEPLAY_CAM_BACK_DIST = 14.35;
+/** Position lerp responsiveness (higher = snappier tracking) */
+export const GAMEPLAY_CAM_FOLLOW_SMOOTH = 14;
+/** Horizontal swipe orbit (radians per CSS pixel) — pointer starts away from ball only */
+export const CAM_ORBIT_RAD_PER_PX = 0.0048;
+/** Clamp orbit yaw around follow baseline */
+export const CAM_ORBIT_YAW_MAX = Math.PI * 1.15;
+
+/** Camera / flow timings (seconds) */
+export const PREVIEW_CAMERA_DURATION = 1.5;
+export const GAMEPLAY_CAMERA_BLEND_DURATION = 0.85;
+export const HOLE_SINK_DURATION = 0.48;
+export const HOLE_CELEBRATION_DURATION = 0.42;
+export const POST_HOLE_LEVEL_DELAY = 0.8;
+export const OOB_MESSAGE_DURATION = 1.45;

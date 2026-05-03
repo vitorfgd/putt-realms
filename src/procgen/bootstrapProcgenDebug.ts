@@ -1,0 +1,150 @@
+import { assetRegistry } from "../art/AssetRegistry";
+import type { AssetKey } from "../art/AssetRegistry";
+import { ProcgenDebugViewer } from "./ProcgenDebugViewer";
+import { PROCGEN_TILE_TO_ASSET } from "./procgenAssetKeys";
+
+const PRELOAD_KEYS: AssetKey[] = Array.from(
+  new Set(Object.values(PROCGEN_TILE_TO_ASSET)),
+) as AssetKey[];
+
+/**
+ * Entry only when URL contains `procgenDebug=1` — does not affect normal gameplay.
+ */
+export async function mountProcgenDebug(canvas: HTMLCanvasElement): Promise<void> {
+  document.querySelector<HTMLElement>("#title-screen")?.remove();
+  document.querySelector<HTMLElement>("#hud")?.remove();
+  document.body.style.margin = "0";
+  canvas.style.display = "block";
+  canvas.style.width = "100vw";
+  canvas.style.height = "100vh";
+
+  const hint = document.createElement("div");
+  hint.style.cssText =
+    "position:fixed;bottom:12px;left:12px;padding:10px 14px;background:rgba(0,0,0,.72);color:#e8f4ff;font:13px/1.45 system-ui,sans-serif;border-radius:8px;z-index:10000;max-width:min(420px,92vw);pointer-events:none;";
+  hint.innerHTML =
+    "<b>Procgen debug</b><br>" +
+    "1–5: tile types · <b>G</b>: random map · <b>S</b>: socket helpers<br>" +
+    "<span style='opacity:.85'>Blue = entry · Green = exit · Red = pivot</span>";
+  document.body.appendChild(hint);
+
+  await Promise.all(PRELOAD_KEYS.map((k) => assetRegistry.preloadAsset(k)));
+
+  const toolbar = document.createElement("div");
+  toolbar.setAttribute("role", "toolbar");
+  toolbar.setAttribute("aria-label", "Procgen debug actions");
+  toolbar.style.cssText =
+    "position:fixed;top:10px;left:10px;right:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;" +
+    "z-index:10001;padding:10px 12px;background:rgba(15,25,40,.88);border-radius:10px;" +
+    "box-shadow:0 4px 16px rgba(0,0,0,.35);pointer-events:auto;font:13px system-ui,sans-serif;";
+
+  const btnStyle =
+    "cursor:pointer;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.2);" +
+    "background:rgba(255,255,255,.12);color:#f0f6ff;font:inherit;";
+  const btnPrimary =
+    btnStyle + "background:rgba(80,160,255,.35);border-color:rgba(120,190,255,.5);";
+  const inputStyle =
+    "min-width:250px;max-width:min(420px,70vw);padding:8px 10px;border-radius:8px;" +
+    "border:1px solid rgba(255,255,255,.24);background:rgba(0,0,0,.28);color:#f0f6ff;font:inherit;";
+  const seedLabelStyle =
+    "padding:8px 10px;border-radius:8px;background:rgba(0,0,0,.24);color:#d8edff;" +
+    "border:1px solid rgba(255,255,255,.12);";
+
+  const seedInput = document.createElement("input");
+  seedInput.type = "text";
+  seedInput.placeholder = "seed";
+  seedInput.style.cssText = inputStyle;
+  seedInput.setAttribute("aria-label", "Procgen seed");
+
+  const difficultyInput = document.createElement("input");
+  difficultyInput.type = "number";
+  difficultyInput.min = "1";
+  difficultyInput.max = "20";
+  difficultyInput.step = "1";
+  difficultyInput.value =
+    new URLSearchParams(location.search).get("procgenDifficulty") ?? "6";
+  difficultyInput.style.cssText = inputStyle + "min-width:82px;max-width:82px;";
+  difficultyInput.setAttribute("aria-label", "Procgen difficulty");
+
+  const seedLabel = document.createElement("span");
+  seedLabel.style.cssText = seedLabelStyle;
+  seedLabel.textContent = "Seed: none yet";
+
+  function updateSeedUi(seed: string): void {
+    seedInput.value = seed;
+    seedLabel.textContent = `Seed: ${seed}`;
+    const url = new URL(location.href);
+    url.searchParams.set("procgenSeed", seed);
+    url.searchParams.set("procgenDifficulty", difficultyInput.value);
+    history.replaceState(null, "", url);
+  }
+
+  function selectedDifficulty(): number {
+    const n = Number(difficultyInput.value);
+    return Number.isFinite(n) ? Math.max(1, Math.min(20, Math.round(n))) : 6;
+  }
+
+  const viewer = new ProcgenDebugViewer(canvas, {
+    onMapGenerated: (map) => updateSeedUi(map.seed),
+  });
+  viewer.start();
+
+  function addButton(
+    label: string,
+    title: string,
+    onClick: () => void,
+    primary = false,
+  ): void {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.title = title;
+    b.style.cssText = primary ? btnPrimary : btnStyle;
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      onClick();
+    });
+    toolbar.appendChild(b);
+  }
+
+  addButton("1 Straight", "Show straight_right_wall", () =>
+    viewer.showPresetTile(1),
+  );
+  addButton("2 Convex", "Show convex_right_wall", () =>
+    viewer.showPresetTile(2),
+  );
+  addButton("3 Concave", "Show concave_right_wall", () =>
+    viewer.showPresetTile(3),
+  );
+  addButton("4 Ramp R", "Show ramp_right_wall", () => viewer.showPresetTile(4));
+  addButton("5 Ramp L", "Show ramp_left_wall", () => viewer.showPresetTile(5));
+  addButton(
+    "Generate map",
+    "Random procedural map (same as G)",
+    () => viewer.generateMapFromUi(undefined, selectedDifficulty()),
+    true,
+  );
+  toolbar.appendChild(seedLabel);
+  toolbar.appendChild(seedInput);
+  toolbar.appendChild(difficultyInput);
+  addButton("Load seed", "Generate the map for the seed in the input", () => {
+    const seed = seedInput.value.trim();
+    if (seed) viewer.generateMapFromUi(seed, selectedDifficulty());
+  });
+  addButton("Copy seed", "Copy the current seed to clipboard", () => {
+    const seed = seedInput.value.trim();
+    if (seed) void navigator.clipboard?.writeText(seed);
+  });
+  addButton("Sockets", "Toggle socket helpers (same as S)", () =>
+    viewer.toggleSocketHelpersFromUi(),
+  );
+
+  document.body.appendChild(toolbar);
+
+  hint.innerHTML +=
+    "<br><span style='opacity:.9'>Or use the <b>buttons</b> at the top. Send the visible <b>Seed</b> when a map breaks.</span>";
+
+  const initialSeed = new URLSearchParams(location.search).get("procgenSeed");
+  if (initialSeed) {
+    viewer.generateMapFromUi(initialSeed, selectedDifficulty());
+  }
+}

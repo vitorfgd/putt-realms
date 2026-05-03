@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Putt Realms</title>
+  </head>
+  <body>
+    <div id="app">
+      <div
+        id="title-screen"
+        class="title-screen"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="title-screen-heading"
+        tabindex="0"
+      >
+        <div class="title-screen__inner">
+          <h1 id="title-screen-heading" class="title-screen__visually-hidden">
+            Putt Realms
+          </h1>
+          <img
+            class="title-screen__logo"
+            src="%BASE_URL%assets/ui/putt_realms_logo.png"
+            alt=""
+            width="640"
+            height="360"
+            decoding="async"
+          />
+          <p class="title-screen__cta">Tap to play</p>
+        </div>
+      </div>
+      <canvas id="game"></canvas>
+      <div id="hud" class="hud" aria-hidden="false">
+        <header class="hud-top">
+          <div
+            class="hud-badge hud-badge--level"
+            data-slot="level-badge"
+          >
+            <span class="hud-badge__value" id="hud-level-value">1</span>
+            <span class="hud-badge__label">LEVEL</span>
+            <span class="hud-badge__meta" id="hud-difficulty">★ 0/10</span>
+          </div>
+
+          <div class="coin-pill" id="hud-coin-pill">
+            <span class="coin-pill__icon" aria-hidden="true"></span>
+            <span class="coin-pill__count" id="hud-coins">0</span>
+            <button
+              type="button"
+              class="coin-pill__plus"
+              id="hud-coin-plus"
+              tabindex="-1"
+              aria-label="Bonus"
+            >
+              +
+            </button>
+          </div>
+
+          <div
+            class="hud-badge hud-badge--strokes"
+            data-slot="strokes-badge"
+          >
+            <span class="hud-badge__value" id="hud-strokes-value">0</span>
+            <span class="hud-badge__label">STROKES</span>
+          </div>
+        </header>
+
+        <div class="hud-mid">
+          <div
+            id="hud-toast"
+            class="hud-toast hud-toast--hidden"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </div>
+
+        <div
+          class="hud-skip-row hud-skip-row--hidden"
+          id="hud-skip-wrap"
+        >
+          <button
+            type="button"
+            class="hud-skip-btn"
+            id="hud-skip-btn"
+            aria-label="Skip level"
+          >
+            Skip level
+          </button>
+          <span class="hud-skip-cost" id="hud-skip-cost"></span>
+        </div>
+
+        <footer class="hud-bottom">
+          <div class="instruction-panel" id="hud-instruction-panel">
+            <p class="instruction-panel__main" id="hud-hint">Drag to aim</p>
+
+            <div
+              class="instruction-panel__power instruction-panel__power--hidden"
+              id="hud-power-wrap"
+            >
+              <span class="instruction-panel__power-pct" id="hud-power-pct"
+                >0%</span
+              >
+              <div
+                class="power-bar"
+                id="hud-power-bar"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+              >
+                <div class="power-bar__fill" id="hud-power-fill"></div>
+              </div>
+            </div>
+
+            <span
+              class="status-chip status-chip--hidden"
+              id="hud-status-chip"
+              >Aiming</span
+            >
+          </div>
+        </footer>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

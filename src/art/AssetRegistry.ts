@@ -1,0 +1,185 @@
+import * as THREE from "three";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { publicUrl } from "../core/publicPath";
+
+const DEFAULT_MODELS_BASE = publicUrl("assets/models/");
+
+/**
+ * Central registry for optional GLB/GLTF meshes. Gameplay never depends on assets loading.
+ *
+ * ─── Where to put files (Vite `public/` → served at site root) ─────────────────
+ *
+ *   public/assets/models/<filename>.glb
+ *
+ * Example full URL at dev:  http://localhost:5173/assets/models/tile_straight.glb
+ *
+ * Use `.glb` (binary) or `.gltf` — update the extension in {@link ASSET_FILENAMES} if you use `.gltf`.
+ *
+ * **flag.gltf (hole_flag):** Sketchfab-style exports reference `scene.bin` in the same folder.
+ * Without `scene.bin` next to `flag.gltf`, the load fails and the procedural hole flag is used.
+ *
+ * Missing files: load fails silently except `console.warn`; {@link getModelClone} returns `null`.
+ *
+ * **Procgen tiles:** FBX keys try `.fbx` first, then the same basename with `.glb`.
+ * Artist sources may live in repo `/Tiles/` — deploy copies under `public/assets/models/`
+ * using names from {@link ASSET_FILENAMES} (e.g. `tile_straight_rw.fbx`).
+ */
+
+export const ASSET_FILENAMES = {
+  tile_square: "tile_square.glb",
+  tile_straight: "tile_straight.glb",
+  tile_curve: "tile_curve.glb",
+  tile_corner: "tile_corner.glb",
+  tile_start: "tile_start.glb",
+  tile_hole: "tile_hole.glb",
+  /** Procgen catalog — place matching `.fbx` (or `.glb`) under `public/assets/models/` */
+  tile_straight_rw: "tile_straight_rw.fbx",
+  tile_floor_plain: "tile_floor_plain.fbx",
+  tile_convex_rw: "tile_convex_rw.fbx",
+  tile_concave_rw: "tile_concave_rw.fbx",
+  tile_ramp_rw: "tile_ramp_rw.fbx",
+  tile_ramp_lw: "tile_ramp_lw.fbx",
+  tile_start_ph: "tile_start_ph.fbx",
+  tile_hole_ph: "tile_hole_ph.fbx",
+  hazard_windmill: "hazard_windmill.glb",
+  hazard_axe: "hazard_axe.glb",
+  hazard_fan: "hazard_fan.glb",
+  hazard_bridge: "hazard_bridge.glb",
+  coin: "coin.glb",
+  ball_default: "ball_default.glb",
+  ball_gold: "ball_gold.glb",
+  hole_flag: "flag.gltf",
+} as const;
+
+export type AssetKey = keyof typeof ASSET_FILENAMES;
+
+/** Mutable cache: undefined = not attempted yet; null = load failed / no file */
+type CacheEntry = THREE.Object3D | null | undefined;
+
+const ALL_KEYS = Object.keys(ASSET_FILENAMES) as AssetKey[];
+
+export class AssetRegistry {
+  private readonly gltfLoader = new GLTFLoader();
+  private readonly fbxLoader = new FBXLoader();
+  private readonly cache = new Map<AssetKey, CacheEntry>();
+  private readonly animationClips = new Map<AssetKey, THREE.AnimationClip[]>();
+  private readonly loadPromises = new Map<AssetKey, Promise<void>>();
+
+  /**
+   * Deep-clone of the cached template for this key, or `null` if unavailable / still loading.
+   * Safe to call every frame.
+   */
+  getModelClone(key: AssetKey): THREE.Object3D | null {
+    const entry = this.cache.get(key);
+    if (entry === undefined || entry === null) return null;
+    return entry.clone(true);
+  }
+
+  /** True once we know a file loaded successfully */
+  isReady(key: AssetKey): boolean {
+    const e = this.cache.get(key);
+    return e !== undefined && e !== null;
+  }
+
+  /** Clips from the last successful GLTF load (empty if none or failed). */
+  getAnimationClips(key: AssetKey): readonly THREE.AnimationClip[] {
+    return this.animationClips.get(key) ?? [];
+  }
+
+  /**
+   * Wait until this asset has finished loading (success or failure).
+   * Safe to call many times; concurrent callers share one promise.
+   */
+  preloadAsset(key: AssetKey, basePath = DEFAULT_MODELS_BASE): Promise<void> {
+    if (this.cache.has(key)) return Promise.resolve();
+    let p = this.loadPromises.get(key);
+    if (!p) {
+      p = this.loadOne(key, basePath).finally(() => {
+        this.loadPromises.delete(key);
+      });
+      this.loadPromises.set(key, p);
+    }
+    return p;
+  }
+
+  /**
+   * Fire-and-forget: loads all known assets in the background. Safe to call once at boot.
+   * Never throws; failures store `null` in cache.
+   */
+  startBackgroundPreload(basePath = DEFAULT_MODELS_BASE): void {
+    for (const k of ALL_KEYS) {
+      void this.preloadAsset(k, basePath);
+    }
+  }
+
+  private async loadOne(key: AssetKey, basePath: string): Promise<void> {
+    const base = basePath.replace(/\/?$/, "/");
+
+    const applyGltf = (gltf: {
+      scene: THREE.Object3D;
+      animations: readonly THREE.AnimationClip[];
+    }) => {
+      const root = gltf.scene;
+      root.name = `asset_${key}`;
+      this.cache.set(key, root);
+      this.animationClips.set(key, [...gltf.animations]);
+    };
+
+    if (key === "hole_flag") {
+      const candidates = ["flag.glb", ASSET_FILENAMES.hole_flag];
+      for (const file of candidates) {
+        const url = `${base}${file}`;
+        try {
+          const gltf = await this.gltfLoader.loadAsync(url);
+          applyGltf(gltf);
+          return;
+        } catch (err) {
+          console.warn(`[AssetRegistry] hole_flag failed: ${url}`, err);
+        }
+      }
+      this.cache.set(key, null);
+      this.animationClips.set(key, []);
+      console.warn(
+        "[AssetRegistry] hole_flag: place `flag.glb` (single-file) or `flag.gltf` + `scene.bin` in public/assets/models/",
+      );
+      return;
+    }
+
+    const file = ASSET_FILENAMES[key];
+    const urlsToTry =
+      file.endsWith(".fbx")
+        ? [
+            `${base}${file}`,
+            `${base}${file.replace(/\.fbx$/i, ".glb")}`,
+          ]
+        : [`${base}${file}`];
+
+    let lastErr: unknown;
+    for (const url of urlsToTry) {
+      try {
+        if (url.endsWith(".fbx")) {
+          const root = await this.fbxLoader.loadAsync(url);
+          root.name = `asset_${key}`;
+          this.cache.set(key, root);
+          this.animationClips.set(key, []);
+          return;
+        }
+        const gltf = await this.gltfLoader.loadAsync(url);
+        applyGltf(gltf);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    console.warn(
+      `[AssetRegistry] Failed to load ${key} (tried: ${urlsToTry.join(", ")})`,
+      lastErr,
+    );
+    this.cache.set(key, null);
+    this.animationClips.set(key, []);
+  }
+}
+
+/** Singleton — import this from TileKit / hazards / Ball; swap in tests by constructing another registry only if you refactor injection later */
+export const assetRegistry = new AssetRegistry();

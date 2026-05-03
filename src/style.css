@@ -1,0 +1,591 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0b0f14;
+  touch-action: none;
+  font-family:
+    ui-rounded,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/** Hide HUD on title screen so only the course reads as mini golf */
+.app--pre-game .hud {
+  visibility: hidden;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  vertical-align: bottom;
+}
+
+#game.canvas-hit-flash {
+  filter: brightness(1.14) saturate(1.08);
+}
+
+/* ——— Title screen (before first frame / tap to start) ——— */
+
+.title-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(16px + env(safe-area-inset-top))
+    calc(20px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom))
+    calc(20px + env(safe-area-inset-left));
+  pointer-events: auto;
+  touch-action: manipulation;
+  /* Let the WebGL mini-golf view show through — no full-screen tint */
+  background: transparent;
+  transition:
+    opacity 0.35s ease,
+    visibility 0.35s ease;
+}
+
+.title-screen--hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.title-screen__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(18px, 5vw, 28px);
+  max-width: min(92vw, 420px);
+  text-align: center;
+  padding: clamp(16px, 4vw, 24px) clamp(18px, 5vw, 28px);
+  border-radius: 22px;
+  /* Light frosted panel only behind logo + CTA — course stays visible around it */
+  background: rgba(6, 14, 10, 0.28);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.title-screen__logo {
+  display: block;
+  width: min(88vw, 380px);
+  height: auto;
+  image-rendering: auto;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.65))
+    drop-shadow(0 16px 40px rgba(0, 0, 0, 0.35));
+}
+
+.title-screen__cta {
+  margin: 0;
+  font-size: clamp(17px, 4.8vw, 22px);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 2px 8px rgba(0, 0, 0, 0.55),
+    0 0 1px rgba(0, 0, 0, 1);
+  animation: title-screen-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes title-screen-pulse {
+  0%,
+  100% {
+    opacity: 0.88;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.title-screen__visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ——— Portrait HUD (9:16 overlay; gameplay canvas letterboxed inside app) ——— */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: calc(12px + env(safe-area-inset-top))
+    calc(14px + env(safe-area-inset-right))
+    calc(16px + env(safe-area-inset-bottom))
+    calc(14px + env(safe-area-inset-left));
+  width: 100%;
+  margin: 0 auto;
+  color: #fff;
+}
+
+/** Align HUD column with typical portrait 9:16 gameplay strip on wide viewports */
+@media (min-aspect-ratio: 10 / 16) {
+  #hud.hud {
+    width: min(100vw, calc(100vh * 9 / 16));
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+}
+
+.hud-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+}
+
+/* Shield badges — swap .hud-badge bg for images later */
+.hud-badge {
+  --hud-badge-bg: rgba(18, 38, 72, 0.82);
+  --hud-badge-edge: #d4a43a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: clamp(68px, 19vw, 88px);
+  padding: 10px 12px 8px;
+  background: var(--hud-badge-bg);
+  border: 3px solid var(--hud-badge-edge);
+  border-radius: 10px 10px 18px 18px;
+  box-shadow:
+    0 4px 0 rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/** Purple gem + gold frame — same asset as full-bleed canvas backdrop */
+.hud-badge--level {
+  --hud-badge-bg: transparent;
+  --hud-badge-edge: transparent;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background-image: url(./assets/textures/level_background.png);
+  background-repeat: no-repeat;
+  background-position: 50% 48%;
+  background-size: 100% auto;
+  width: clamp(96px, 31vw, 136px);
+  min-width: unset;
+  aspect-ratio: 1;
+  padding: 15% 14% 20%;
+  justify-content: flex-start;
+  padding-top: 16%;
+  gap: 1px;
+}
+
+.hud-badge--level .hud-badge__value,
+.hud-badge--strokes .hud-badge__value {
+  font-size: clamp(28px, 8.2vw, 40px);
+}
+
+.hud-badge--level .hud-badge__value {
+  color: #fffefb;
+  text-shadow:
+    0 2px 0 rgba(40, 12, 80, 0.85),
+    0 0 12px rgba(120, 60, 200, 0.45);
+}
+
+.hud-badge--level .hud-badge__label {
+  margin-top: 2px;
+  color: rgba(255, 250, 255, 0.95);
+  text-shadow:
+    0 1px 2px rgba(40, 12, 80, 0.8),
+    0 0 8px rgba(80, 40, 140, 0.4);
+}
+
+.hud-badge--level .hud-badge__meta {
+  margin-top: 4px;
+  color: #ffe9a0;
+  text-shadow:
+    0 1px 2px rgba(40, 12, 80, 0.75),
+    0 0 6px rgba(100, 50, 30, 0.35);
+}
+
+/** Green shield art — text in central green facet (PNG provides gold frame) */
+.hud-badge--strokes {
+  --hud-badge-bg: transparent;
+  --hud-badge-edge: transparent;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background-image: url(./ui/hud_strokes_badge.png);
+  background-repeat: no-repeat;
+  background-position: 50% 42%;
+  background-size: 100% auto;
+  width: clamp(94px, 30vw, 132px);
+  min-width: unset;
+  aspect-ratio: 1;
+  padding: 17% 16% 26%;
+  justify-content: center;
+  gap: 2px;
+}
+
+.hud-badge--strokes .hud-badge__value {
+  color: #f8fff0;
+  text-shadow:
+    0 2px 0 rgba(15, 40, 8, 0.85),
+    0 0 10px rgba(42, 82, 18, 0.55);
+}
+
+.hud-badge--strokes .hud-badge__label {
+  margin-top: 0;
+  color: rgba(248, 255, 240, 0.96);
+  text-shadow:
+    0 1px 2px rgba(15, 40, 8, 0.75),
+    0 0 8px rgba(42, 82, 18, 0.45);
+}
+
+.hud-badge:first-child {
+  justify-self: start;
+}
+
+.hud-badge:last-child {
+  justify-self: end;
+}
+
+.hud-badge__value {
+  font-size: clamp(26px, 7.5vw, 34px);
+  font-weight: 800;
+  line-height: 1;
+  text-shadow:
+    0 2px 0 rgba(0, 0, 0, 0.45),
+    0 0 12px rgba(212, 164, 58, 0.35);
+  letter-spacing: 0.02em;
+}
+
+.hud-badge__label {
+  margin-top: 4px;
+  font-size: clamp(9px, 2.5vw, 11px);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.hud-badge__meta {
+  margin-top: 5px;
+  font-size: clamp(9px, 2.4vw, 11px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #f0d78c;
+  opacity: 0.95;
+}
+
+.hud-badge__meta--imperfect {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+/* Coin pill — rounded dark bar + gold rim */
+.coin-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 999px;
+  background: rgba(12, 22, 42, 0.92);
+  border: 3px solid #c9a227;
+  box-shadow:
+    0 4px 0 rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  justify-self: center;
+  grid-column: 2;
+}
+
+.coin-pill__icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: radial-gradient(circle at 35% 30%, #ffe566, #e8a010 55%, #a56c08);
+  border: 2px solid #fff6c8;
+  box-shadow:
+    inset 0 -2px 0 rgba(0, 0, 0, 0.25),
+    0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.coin-pill__count {
+  font-size: clamp(17px, 4.8vw, 22px);
+  font-weight: 800;
+  min-width: 1.2em;
+  text-align: center;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.coin-pill__plus {
+  pointer-events: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  color: #0a1a0d;
+  background: linear-gradient(180deg, #7cff9a 0%, #2dbe55 45%, #1a8f3c 100%);
+  box-shadow:
+    0 3px 0 #0d5a26,
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: default;
+  touch-action: manipulation;
+}
+
+.coin-pill__plus:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 0 #0d5a26;
+}
+
+/* Reward toasts (temporary) */
+.hud-mid {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 6px;
+  pointer-events: none;
+}
+
+.hud-skip-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: min(96%, 420px);
+  margin: 0 auto 8px;
+  pointer-events: none;
+}
+
+.hud-skip-row--hidden {
+  display: none;
+}
+
+.hud-skip-btn {
+  pointer-events: auto;
+  touch-action: manipulation;
+  padding: 10px 18px;
+  border-radius: 14px;
+  border: 3px solid #d4a43a;
+  font-size: clamp(13px, 3.8vw, 16px);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: rgba(18, 38, 72, 0.92);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.38);
+  cursor: pointer;
+}
+
+.hud-skip-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hud-skip-cost {
+  font-size: clamp(12px, 3.4vw, 14px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #f0d78c;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.hud-toast {
+  margin: 0;
+  padding: 12px 20px;
+  max-width: min(92%, 340px);
+  text-align: center;
+  font-size: clamp(14px, 4vw, 18px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  line-height: 1.25;
+  color: #fff;
+  text-shadow:
+    0 2px 0 rgba(0, 0, 0, 0.5),
+    0 0 18px rgba(212, 164, 58, 0.45);
+  background: rgba(18, 38, 72, 0.88);
+  border: 3px solid #d4a43a;
+  border-radius: 14px;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.hud-toast--hidden {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  visibility: hidden;
+}
+
+.hud-toast:not(.hud-toast--hidden) {
+  visibility: visible;
+}
+
+.hud-toast--hole-in-one {
+  border-color: #ffe08a;
+  background: rgba(36, 28, 12, 0.92);
+  color: #fff8e0;
+  text-shadow:
+    0 0 20px rgba(255, 220, 120, 0.8),
+    0 2px 0 rgba(0, 0, 0, 0.6);
+}
+
+.hud-toast--clean-shot {
+  border-color: #8fd4ff;
+  color: #eaf6ff;
+}
+
+.hud-toast--oob {
+  border-color: #ff8888;
+  background: rgba(48, 18, 22, 0.92);
+  color: #ffd0d0;
+}
+
+.hud-toast--free-skip {
+  border-color: #b8ff9a;
+  color: #eeffe8;
+}
+
+.hud-toast--coins {
+  border-color: #ffe08a;
+  background: rgba(28, 42, 22, 0.94);
+  color: #fff8d0;
+  font-size: clamp(16px, 4.5vw, 22px);
+  letter-spacing: 0.1em;
+}
+
+/* Bottom instruction block */
+.hud-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.instruction-panel {
+  position: relative;
+  width: 100%;
+  max-width: min(96%, 420px);
+  padding: 16px 18px 14px;
+  background: rgba(18, 38, 72, 0.88);
+  border: 3px solid #d4a43a;
+  border-radius: 22px;
+  box-shadow:
+    0 6px 0 rgba(0, 0, 0, 0.38),
+    inset 0 2px 0 rgba(255, 255, 255, 0.07);
+  text-align: center;
+}
+
+.instruction-panel__main {
+  margin: 0;
+  font-size: clamp(17px, 4.9vw, 22px);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+
+.instruction-panel__power {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.instruction-panel__power--hidden {
+  display: none;
+}
+
+.instruction-panel__power-pct {
+  align-self: center;
+  font-size: clamp(22px, 6.5vw, 30px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #ffe9a8;
+  text-shadow:
+    0 2px 0 rgba(0, 0, 0, 0.5),
+    0 0 14px rgba(212, 164, 58, 0.45);
+}
+
+.power-bar {
+  height: clamp(14px, 4vw, 18px);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.power-bar__fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    #ffe9a0 0%,
+    #e8b020 40%,
+    #c07810 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.05s linear;
+}
+
+.status-chip {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: clamp(11px, 3vw, 13px);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(8, 120, 72, 0.95);
+  border: 2px solid #6dff9e;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.status-chip--hidden {
+  display: none;
+}
