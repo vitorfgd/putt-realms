@@ -87,6 +87,25 @@ export class Hud {
     );
   }
 
+  setProcgenMeta(meta: {
+    seed?: string;
+    progressionLevel?: number;
+    tileCount?: number;
+    turnCount?: number;
+    rampCount?: number;
+  }): void {
+    const bits = [
+      meta.seed ? `seed ${meta.seed}` : null,
+      meta.progressionLevel !== undefined
+        ? `progression ${meta.progressionLevel}/20`
+        : null,
+      meta.tileCount !== undefined ? `${meta.tileCount} tiles` : null,
+      meta.turnCount !== undefined ? `${meta.turnCount} turns` : null,
+      meta.rampCount !== undefined ? `${meta.rampCount} ramps` : null,
+    ].filter((bit): bit is string => bit !== null);
+    this.elDifficulty.title = bits.join(" | ");
+  }
+
   setCoins(amount: number): void {
     this.elCoins.textContent = `${amount}`;
   }

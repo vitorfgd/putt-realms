@@ -1,5 +1,10 @@
 import * as THREE from "three";
-import type { LevelWorldBounds, RailCapsule } from "../level/LevelTypes";
+import type {
+  CourseSurface,
+  LevelWorldBounds,
+  RailCapsule,
+} from "../level/LevelTypes";
+import { sampleCourseSurface } from "../level/courseSurface";
 import { RAIL_THICKNESS } from "../level/TileDimensions";
 import {
   FALL_OOB_Y,
@@ -11,7 +16,7 @@ import {
   WALL_RESTITUTION,
 } from "../core/Constants";
 
-/** Legacy alias — playable xz clamp from level generator */
+/** Legacy alias: playable xz bounds from level generator. */
 export type BallPhysicsBounds = LevelWorldBounds;
 
 export interface PhysicsStepResult {
@@ -21,16 +26,12 @@ export interface PhysicsStepResult {
 
 /** Optional environmental forces / surface feel for a single integration step. */
 export interface PhysicsStepEnvironment {
-  /** ≥1 — scales friction decay (higher = stronger slowdown). */
+  /** >=1: scales friction decay (higher = stronger slowdown). */
   frictionScale?: number;
   planarAccelX?: number;
   planarAccelZ?: number;
 }
 
-/**
- * Planar roll with friction on the deck, lobbed shots with gravity,
- * and falling past deck edges (no rubber band at forward/lateral cliffs).
- */
 function closestPointOnSegment2D(
   px: number,
   pz: number,
@@ -53,26 +54,39 @@ export class SimpleBallPhysics {
   readonly velocity = new THREE.Vector3(0, 0, 0);
   private settled = true;
   private rails: readonly RailCapsule[] = [];
-  /** Set during {@link step} when rails or course bounds deflect the ball — read with {@link consumeSurfaceContact}. */
+  private surface: CourseSurface | undefined;
+  /** Set during step when rails deflect the ball, then read with consumeSurfaceContact. */
   private surfaceContact = false;
 
   constructor(
     readonly radius: number,
     private bounds: LevelWorldBounds,
-    /** World z beyond which there is no deck support (forward runway end). */
+    /** Legacy compatibility: kept for callers/debugging; support now comes from CourseSurface. */
     private oobMaxZ: number,
-  ) {}
+    surface?: CourseSurface,
+  ) {
+    this.surface = surface;
+  }
 
   setBounds(next: LevelWorldBounds, oobZ: number): void {
     this.bounds = next;
     this.oobMaxZ = oobZ;
+    void this.bounds;
   }
 
   setRailColliders(next: readonly RailCapsule[]): void {
     this.rails = next;
   }
 
-  /** True once per step if wood rails or outer bounds reflected the ball; then clears. */
+  setSurface(next: CourseSurface): void {
+    this.surface = next;
+  }
+
+  surfaceHeightAt(x: number, z: number): number | null {
+    return sampleCourseSurface(this.surface, x, z)?.y ?? null;
+  }
+
+  /** True once per step if wood rails reflected the ball; then clears. */
   consumeSurfaceContact(): boolean {
     const v = this.surfaceContact;
     this.surfaceContact = false;
@@ -120,9 +134,16 @@ export class SimpleBallPhysics {
     const dt = deltaSeconds;
     this.velocity.y -= GRAVITY * dt;
 
+    const preSupport = sampleCourseSurface(this.surface, position.x, position.z);
+    const supportedBefore =
+      preSupport !== null && position.y <= preSupport.y + 0.08;
+    const rampGravity =
+      supportedBefore && preSupport.patch.kind === "ramp" ? 0.58 : 0;
     const frictionScale = Math.max(1, env?.frictionScale ?? 1);
-    const ax = env?.planarAccelX ?? 0;
-    const az = env?.planarAccelZ ?? 0;
+    const ax =
+      (env?.planarAccelX ?? 0) - (preSupport?.gradX ?? 0) * GRAVITY * rampGravity;
+    const az =
+      (env?.planarAccelZ ?? 0) - (preSupport?.gradZ ?? 0) * GRAVITY * rampGravity;
     this.velocity.x += ax * dt;
     this.velocity.z += az * dt;
 
@@ -130,23 +151,21 @@ export class SimpleBallPhysics {
     position.z += this.velocity.z * dt;
     position.y += this.velocity.y * dt;
 
-    const { minX, maxX, minZ } = this.bounds;
-    const onDeckXZ =
-      position.x >= minX &&
-      position.x <= maxX &&
-      position.z >= minZ &&
-      position.z <= this.oobMaxZ;
+    let support = sampleCourseSurface(this.surface, position.x, position.z);
+    let supportY = support?.y ?? null;
 
     if (
-      onDeckXZ &&
-      position.y <= 0.14 &&
+      supportY !== null &&
+      position.y <= supportY + 0.24 &&
       this.rails.length > 0
     ) {
-      this.resolveWoodRails(position);
+      this.resolveWoodRails(position, supportY);
+      support = sampleCourseSurface(this.surface, position.x, position.z);
+      supportY = support?.y ?? null;
     }
 
-    if (onDeckXZ && position.y < 0) {
-      position.y = 0;
+    if (supportY !== null && position.y < supportY) {
+      position.y = supportY;
       if (this.velocity.y < 0) {
         this.velocity.y *= -GROUND_RESTITUTION_Y;
       }
@@ -155,41 +174,25 @@ export class SimpleBallPhysics {
       }
     }
 
-    /** Damp micro-vertical jitter once the ball is rolling on the deck */
     if (
-      onDeckXZ &&
-      position.y > 0 &&
-      position.y < 0.028 &&
+      supportY !== null &&
+      position.y > supportY &&
+      position.y < supportY + 0.028 &&
       Math.abs(this.velocity.y) < 0.06
     ) {
-      position.y = 0;
+      position.y = supportY;
       this.velocity.y = 0;
     }
 
+    const groundedY = supportY;
     const grounded =
-      onDeckXZ &&
-      position.y <= 0.002 &&
+      groundedY !== null &&
+      position.y <= groundedY + 0.002 &&
       Math.abs(this.velocity.y) < 0.008;
 
     if (grounded) {
-      position.y = 0;
+      position.y = groundedY;
       this.velocity.y = 0;
-
-      if (position.x < minX) {
-        position.x = minX;
-        this.velocity.x *= -WALL_RESTITUTION;
-        this.surfaceContact = true;
-      } else if (position.x > maxX) {
-        position.x = maxX;
-        this.velocity.x *= -WALL_RESTITUTION;
-        this.surfaceContact = true;
-      }
-
-      if (position.z < minZ) {
-        position.z = minZ;
-        this.velocity.z *= -WALL_RESTITUTION;
-        this.surfaceContact = true;
-      }
 
       const drag = Math.exp(-PHYS_FRICTION_PER_SEC * frictionScale * dt);
       this.velocity.x *= drag;
@@ -212,12 +215,18 @@ export class SimpleBallPhysics {
     return {};
   }
 
-  /** Cream wood rails — push ball out + damp bounce along normal (matches TileKit thickness). */
-  private resolveWoodRails(position: THREE.Vector3): void {
+  /** Cream wood rails: push ball out + damp bounce along normal (matches TileKit thickness). */
+  private resolveWoodRails(position: THREE.Vector3, supportY: number): void {
     const pad = RAIL_THICKNESS * 0.5 + this.radius * 0.94;
 
     for (let pass = 0; pass < 4; pass++) {
       for (const seg of this.rails) {
+        if (
+          (seg.yMin !== undefined && supportY < seg.yMin) ||
+          (seg.yMax !== undefined && supportY > seg.yMax)
+        ) {
+          continue;
+        }
         const q = closestPointOnSegment2D(
           position.x,
           position.z,

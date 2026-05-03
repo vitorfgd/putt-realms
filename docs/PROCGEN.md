@@ -1,7 +1,7 @@
 # Putt Realms — Procedural Generation Technical Reference
 
 > **Living document.** Update this file whenever a procgen file changes.  
-> Last updated: 2026-05-01 (double-row curves + ramp elevation + vertical gap fix)
+> Last updated: 2026-05-02 (procgen playable integration + course-surface physics)
 
 ---
 
@@ -58,6 +58,29 @@ adaptProcgenMapToGeneratedLevel()   ← bridges to legacy renderer
       ▼
 LevelBuilder.buildInto()  →  TileKit.buildTileGroup()  →  Three.js scene
 ```
+
+---
+
+### Playable-game integration
+
+`Game.loadLevel()` now treats procgen as the primary level source when
+`USE_PROCGEN_ENDPOINT=true`. Gameplay uses deterministic seeds in the form
+`putt-${levelIndex}-v2`; if procgen validation fails, the game retries deterministic retry
+suffixes before falling back to the legacy `LevelGenerator` and marking the level imperfect.
+
+The gameplay adapter emits a `CourseSurface` alongside the rendered tiles:
+- flat patches for straight/corner/start/hole/floor tiles,
+- ramp patches for ramp tiles, rising from local `-Z` to local `+Z`,
+- no support outside actual tile footprints, so curved elbow voids are real voids.
+
+`SimpleBallPhysics` queries that support surface every step. Ball height, ramp downhill
+acceleration, elevated flat resting, OOB falling, and shot-drag aim planes are all based on
+the surface under the ball rather than a rectangular course bound. Rail colliders also carry
+vertical bands so low/elevated rails do not collide through the ball at the wrong height.
+
+The debug URL flow is preserved: `?procgenDebug=1&procgenSeed=...&procgenDifficulty=...`
+reproduces gameplay layouts when the seed is the gameplay seed and the difficulty is the
+same 1-20 progression level.
 
 ---
 
@@ -194,7 +217,7 @@ Tile solver:  `TilePlacementSolver.solveDoubleRowStraightPath(cellCountZ, opts)`
 
 **Scale note:** the convex/concave FBX files may be authored as 2x2 source-art tiles, but
 runtime procgen still uses the existing world footprint (`TILE_LENGTH = 6`,
-`TILE_WIDTH = 4`). The model loader scales art into that footprint; gameplay spacing,
+`TILE_WIDTH = 6`). The model loader scales art into that footprint; gameplay spacing,
 physics, camera bounds, and pivot math are unchanged.
 
 Grid layout (with one ramp row at z=2 as example):

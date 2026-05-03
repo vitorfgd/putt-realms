@@ -62,6 +62,8 @@ export interface PlacedTile {
   modelKey: string;
   /** Optional fallback rail/collider orientation for curved procgen tiles. */
   railS?: { sx: 1 | -1; sz: 1 | -1 };
+  /** Centerline station that emitted this physical cell. */
+  stationIndex?: number;
 }
 
 export interface GeneratedMap {

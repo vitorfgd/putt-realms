@@ -21,7 +21,6 @@ import {
 } from "../level/levelBackground";
 import { createSkyCloudBackdrop } from "../level/skyClouds";
 import type { GeneratedLevel, LevelWorldBounds } from "../level/LevelTypes";
-import { targetDifficulty } from "../level/Difficulty";
 import { LevelGenerator } from "../level/LevelGenerator";
 import { mapGenerationEndpoint } from "../procgen/MapGenerationEndpoint";
 import { holeCupRadius } from "../level/TileDimensions";
@@ -72,6 +71,51 @@ const HOLE_PORTAL_WORLD_UP = new THREE.Vector3(0, 1, 0);
 /** Letterbox bars — deep sky hue (not harsh black) */
 const LETTERBOX_CLEAR = 0x3d78a8;
 const START_LEVEL_INDEX = 1;
+const PROCGEN_RETRY_COUNT = 4;
+const MIN_CAMERA_ZOOM = 0.58;
+const MAX_CAMERA_ZOOM = 1.9;
+
+interface ProcgenGameplayConfig {
+  progressionLevel: number;
+  displayTargetDifficulty: number;
+  maxTiles: number;
+  allowCurves: boolean;
+  allowRamps: boolean;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function hashSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(a: number): () => number {
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function procgenGameplayConfig(levelIndex: number): ProcgenGameplayConfig {
+  const progressionLevel = clamp(Math.round(levelIndex), 1, 20);
+  return {
+    progressionLevel,
+    displayTargetDifficulty: Math.round(((progressionLevel - 1) / 19) * 10),
+    maxTiles: 16 + progressionLevel * 5,
+    allowCurves: progressionLevel >= 2,
+    allowRamps: progressionLevel >= 3,
+  };
+}
 
 function computePortraitGameplayRect(
   innerWidth: number,
@@ -101,6 +145,7 @@ function computeBallFollowCameraPose(
   outTarget: THREE.Vector3,
   ballY = 0,
   yawOffset = 0,
+  zoomScale = 1,
 ): void {
   let fx = holeX - ballX;
   let fz = holeZ - ballZ;
@@ -112,13 +157,15 @@ function computeBallFollowCameraPose(
     fx /= len;
     fz /= len;
   }
-  const ox = -fx * GAMEPLAY_CAM_BACK_DIST;
-  const oz = -fz * GAMEPLAY_CAM_BACK_DIST;
+  const zoom = clamp(zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+  const ox = -fx * GAMEPLAY_CAM_BACK_DIST * zoom;
+  const oz = -fz * GAMEPLAY_CAM_BACK_DIST * zoom;
   const c = Math.cos(yawOffset);
   const s = Math.sin(yawOffset);
   const rx = ox * c + oz * s;
   const rz = -ox * s + oz * c;
-  const eyeY = GAMEPLAY_CAM_HEIGHT + Math.min(4.5, Math.max(0, ballY)) * 0.42;
+  const eyeY =
+    GAMEPLAY_CAM_HEIGHT * zoom + Math.min(4.5, Math.max(0, ballY)) * 0.42;
   /** Slightly shorten horizontal offset vs height → a bit more top-down without huge distance change */
   const horizTighten = 0.94;
   outPos.set(ballX + rx * horizTighten, eyeY, ballZ + rz * horizTighten);
@@ -130,13 +177,16 @@ function computeTopDownCameraPose(
   bounds: LevelWorldBounds,
   outPos: THREE.Vector3,
   outTarget: THREE.Vector3,
+  zoomScale = 1,
+  panX = 0,
+  panZ = 0,
 ): void {
-  const cx = (bounds.minX + bounds.maxX) / 2;
-  const cz = (bounds.minZ + bounds.maxZ) / 2;
+  const cx = (bounds.minX + bounds.maxX) / 2 + panX;
+  const cz = (bounds.minZ + bounds.maxZ) / 2 + panZ;
   const dx = bounds.maxX - bounds.minX;
   const dz = bounds.maxZ - bounds.minZ;
   const span = Math.max(32, dx, dz);
-  const y = span * 1.45 + 42;
+  const y = (span * 1.45 + 42) * clamp(zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
   outPos.set(cx, y, cz);
   outTarget.set(cx, 0, cz);
 }
@@ -211,6 +261,8 @@ export class Game {
   private gameLoopStarted = false;
   /** Horizontal orbit offset around ball–hole baseline (yaw, radians) */
   private cameraYawOffset = 0;
+  private cameraZoomScale = 1;
+  private readonly previewPanOffset = new THREE.Vector2(0, 0);
 
   private skyBackdrop: THREE.Group | null = null;
   private levelBackdropMesh: THREE.Mesh | null = null;
@@ -222,7 +274,7 @@ export class Game {
     private readonly canvas: HTMLCanvasElement,
     hudRoot: HTMLElement,
   ) {
-    this.camera = new THREE.PerspectiveCamera(48, GAMEPLAY_ASPECT, 0.1, 500);
+    this.camera = new THREE.PerspectiveCamera(48, GAMEPLAY_ASPECT, 0.1, 1200);
     this.scene.add(this.courseGroup);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -245,7 +297,7 @@ export class Game {
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.set(2048, 2048);
     this.keyLight.shadow.camera.near = 0.4;
-    this.keyLight.shadow.camera.far = 90;
+    this.keyLight.shadow.camera.far = 320;
     this.keyLight.shadow.bias = -0.00025;
     this.keyLight.shadow.normalBias = 0.03;
     this.scene.add(this.keyLight);
@@ -272,11 +324,14 @@ export class Game {
     this.run.onPhaseChange((phase) => {
       this.audio.syncForPhase(phase, this.currentLevelIndex);
       if (phase === RunPhase.PreviewCamera) {
-        this.previewTimer = PREVIEW_CAMERA_DURATION;
+        this.previewTimer = this.previewDurationForCurrentLevel();
         computeTopDownCameraPose(
           this.generatedLevel.bounds,
           this.camPreviewPos,
           this.camPreviewTarget,
+          this.cameraZoomScale,
+          this.previewPanOffset.x,
+          this.previewPanOffset.y,
         );
       }
       if (phase === RunPhase.TransitioningCamera) {
@@ -290,6 +345,7 @@ export class Game {
           this.camGameplayTarget,
           this.ball.position.y,
           this.cameraYawOffset,
+          this.cameraZoomScale,
         );
       }
       if (phase === RunPhase.LevelComplete) {
@@ -303,7 +359,7 @@ export class Game {
         this.physics.settleHard();
         this.ball.position.x = this.lastShotPosition.x;
         this.ball.position.z = this.lastShotPosition.z;
-        this.ball.position.y = 0;
+        this.ball.position.y = this.lastShotPosition.y;
         this.ball.resetVisual();
       }
     });
@@ -315,6 +371,7 @@ export class Game {
     const dragCtx: DragShotContext = {
       camera: this.camera,
       planeY: 0,
+      getPlaneY: () => this.ball.position.y,
       ballRadius: Ball.RADIUS,
       minDragWorld: MIN_DRAG_WORLD,
       maxDragWorld: MAX_DRAG_WORLD,
@@ -350,8 +407,14 @@ export class Game {
         const p = this.run.getPhase();
         if (this.input.isAiming()) return false;
         return (
-          p === RunPhase.AwaitingShot || p === RunPhase.BallInFlight
+          p === RunPhase.AwaitingShot ||
+          p === RunPhase.BallInFlight
         );
+      },
+      canNavigate: () => {
+        const p = this.run.getPhase();
+        return !this.input.isAiming() &&
+          (p === RunPhase.PreviewCamera || p === RunPhase.AwaitingShot);
       },
       addYaw: (d) => {
         const next = this.cameraYawOffset + d;
@@ -360,6 +423,14 @@ export class Game {
           Math.min(CAM_ORBIT_YAW_MAX, next),
         );
       },
+      addZoom: (delta) => {
+        this.cameraZoomScale = clamp(
+          this.cameraZoomScale * Math.exp(delta * 0.001),
+          MIN_CAMERA_ZOOM,
+          MAX_CAMERA_ZOOM,
+        );
+      },
+      addPan: (dx, dy) => this.panPreviewCamera(dx, dy),
     });
     this.cameraOrbit.attach();
 
@@ -384,33 +455,13 @@ export class Game {
 
   private loadLevel(levelIndex: number, isFirst: boolean): void {
     this.cameraYawOffset = 0;
+    this.cameraZoomScale = 1;
+    this.previewPanOffset.set(0, 0);
     this.stuckTimer = 0;
     this.freeSkipFromStuck = false;
     this.disposeSkyBackdrop();
     this.disposeCourse();
-    if (USE_PROCGEN_ENDPOINT) {
-      const rng = Math.random;
-      const tdFloat = targetDifficulty(levelIndex, rng);
-      const tdInt = Math.max(0, Math.min(10, Math.round(tdFloat)));
-      const progressionDifficulty = Math.max(1, Math.min(20, levelIndex));
-      const procMap = mapGenerationEndpoint.generateMap({
-        seed: `putt-${levelIndex}-v1`,
-        levelIndex,
-        targetDifficulty: progressionDifficulty,
-        maxTiles: 16 + progressionDifficulty * 5,
-        allowRamps: levelIndex >= 3,
-        allowCurves: levelIndex >= 2,
-      });
-      this.generatedLevel = adaptProcgenMapToGeneratedLevel(procMap, {
-        levelIndex,
-        targetDifficultyRounded: tdInt,
-        rng: Math.random,
-      });
-    } else {
-      this.generatedLevel = this.levelGenerator.generate(levelIndex, {
-        previousDifficultyScore: this.previousDifficultyScore,
-      });
-    }
+    this.generatedLevel = this.generatePlayableLevel(levelIndex);
     this.previousDifficultyScore = this.generatedLevel.difficultyScore;
 
     this.holeFlagMixers = this.levelBuilder.buildInto(
@@ -440,10 +491,12 @@ export class Game {
         Ball.RADIUS,
         this.generatedLevel.bounds,
         oobMaxZ,
+        this.generatedLevel.surface,
       );
     } else {
       this.physics.setBounds(this.generatedLevel.bounds, oobMaxZ);
     }
+    this.physics.setSurface(this.generatedLevel.surface);
     this.physics.setRailColliders(this.generatedLevel.railColliders);
 
     this.placeBallAtTee();
@@ -459,11 +512,15 @@ export class Game {
       this.camGameplayTarget,
       this.ball.position.y,
       this.cameraYawOffset,
+      this.cameraZoomScale,
     );
     computeTopDownCameraPose(
       this.generatedLevel.bounds,
       this.camPreviewPos,
       this.camPreviewTarget,
+      this.cameraZoomScale,
+      this.previewPanOffset.x,
+      this.previewPanOffset.y,
     );
     this.camera.position.copy(this.camGameplayPos);
     this.camera.lookAt(this.camGameplayTarget);
@@ -473,12 +530,121 @@ export class Game {
       this.generatedLevel.difficultyScore,
       this.generatedLevel.imperfectDifficulty,
     );
+    this.hud.setProcgenMeta({
+      seed: this.generatedLevel.procgenSeed,
+      progressionLevel: this.generatedLevel.progressionLevel,
+      tileCount: this.generatedLevel.tiles.length,
+      turnCount: this.countGeneratedTurns(),
+      rampCount: this.generatedLevel.tiles.filter((tile) => tile.isRamp).length,
+    });
     this.hud.setStrokes(0);
     this.hud.setCoins(this.economy.getCoins());
     this.ball.syncVisualFromRegistry(this.cosmetics.getEquippedBallCosmetic());
     this.ball.applyCosmeticTint(
       BALL_COSMETIC_BODY_HEX[this.cosmetics.getEquippedBallCosmetic()],
     );
+  }
+
+  private generatePlayableLevel(levelIndex: number): GeneratedLevel {
+    if (!USE_PROCGEN_ENDPOINT) {
+      return this.levelGenerator.generate(levelIndex, {
+        previousDifficultyScore: this.previousDifficultyScore,
+      });
+    }
+
+    const config = procgenGameplayConfig(levelIndex);
+    const baseSeed = `putt-${levelIndex}-v2`;
+    for (let attempt = 0; attempt < PROCGEN_RETRY_COUNT; attempt++) {
+      const seed = attempt === 0 ? baseSeed : `${baseSeed}-retry-${attempt}`;
+      try {
+        const procMap = mapGenerationEndpoint.generateMap({
+          seed,
+          levelIndex,
+          targetDifficulty: config.progressionLevel,
+          maxTiles: config.maxTiles,
+          allowRamps: config.allowRamps,
+          allowCurves: config.allowCurves,
+        });
+        return adaptProcgenMapToGeneratedLevel(procMap, {
+          levelIndex,
+          targetDifficultyRounded: config.displayTargetDifficulty,
+          rng: mulberry32(hashSeed(`${seed}|hazards`)),
+        });
+      } catch (err) {
+        console.warn("Procgen gameplay map rejected, retrying", {
+          levelIndex,
+          seed,
+          err,
+        });
+      }
+    }
+
+    const fallback = this.levelGenerator.generate(levelIndex, {
+      previousDifficultyScore: this.previousDifficultyScore,
+    });
+    fallback.imperfectDifficulty = true;
+    fallback.procgenDebugInfo = {
+      procgenFallback: true,
+      attemptedSeed: baseSeed,
+      retryCount: PROCGEN_RETRY_COUNT,
+      progressionConfig: config,
+    };
+    return fallback;
+  }
+
+  private previewDurationForCurrentLevel(): number {
+    const span = Math.max(
+      this.generatedLevel.bounds.maxX - this.generatedLevel.bounds.minX,
+      this.generatedLevel.bounds.maxZ - this.generatedLevel.bounds.minZ,
+    );
+    return PREVIEW_CAMERA_DURATION + clamp((span - 42) / 120, 0, 1.6);
+  }
+
+  private panPreviewCamera(dxPixels: number, dyPixels: number): void {
+    const phase = this.run.getPhase();
+    if (phase !== RunPhase.PreviewCamera) return;
+    const span = Math.max(
+      32,
+      this.generatedLevel.bounds.maxX - this.generatedLevel.bounds.minX,
+      this.generatedLevel.bounds.maxZ - this.generatedLevel.bounds.minZ,
+    );
+    const worldPerPixel =
+      (span * this.cameraZoomScale) / Math.max(1, this.gameplayRect.height);
+    this.previewPanOffset.x -= dxPixels * worldPerPixel;
+    this.previewPanOffset.y += dyPixels * worldPerPixel;
+    const limit = span * 0.55;
+    this.previewPanOffset.x = clamp(this.previewPanOffset.x, -limit, limit);
+    this.previewPanOffset.y = clamp(this.previewPanOffset.y, -limit, limit);
+  }
+
+  private countGeneratedTurns(): number {
+    const spine = this.generatedLevel.procgenDebugInfo?.["spinePath"];
+    if (Array.isArray(spine)) {
+      let turns = 0;
+      for (let i = 1; i < spine.length - 1; i++) {
+        const a = spine[i - 1] as { x?: unknown; z?: unknown };
+        const b = spine[i] as { x?: unknown; z?: unknown };
+        const c = spine[i + 1] as { x?: unknown; z?: unknown };
+        if (
+          typeof a.x === "number" &&
+          typeof a.z === "number" &&
+          typeof b.x === "number" &&
+          typeof b.z === "number" &&
+          typeof c.x === "number" &&
+          typeof c.z === "number"
+        ) {
+          const dx1 = b.x - a.x;
+          const dz1 = b.z - a.z;
+          const dx2 = c.x - b.x;
+          const dz2 = c.z - b.z;
+          if (dx1 !== dx2 || dz1 !== dz2) turns++;
+        }
+      }
+      return turns;
+    }
+    return this.generatedLevel.tiles.filter(
+      (tile) => tile.type === "corner" || tile.type === "curve",
+    ).length;
   }
 
   private disposeSkyBackdrop(): void {
@@ -513,7 +679,7 @@ export class Game {
   private placeBallAtTee(): void {
     this.ball.position.set(
       this.generatedLevel.startPosition.x,
-      0,
+      this.generatedLevel.startPosition.y,
       this.generatedLevel.startPosition.z,
     );
   }
@@ -734,7 +900,7 @@ export class Game {
       this.physics.velocity.z,
     );
     if (spd > HOLE_SCORE_MAX_SPEED) return false;
-    if (Math.abs(this.ball.position.y) > 0.42) return false;
+    if (Math.abs(this.ball.position.y - hp.y) > 0.42) return false;
     return dx * dx + dz * dz <= this.holeScoreRadius() ** 2;
   }
 
@@ -761,6 +927,7 @@ export class Game {
       this.camGameplayTarget,
       this.ball.position.y,
       this.cameraYawOffset,
+      this.cameraZoomScale,
     );
     const alpha =
       1 - Math.exp(-GAMEPLAY_CAM_FOLLOW_SMOOTH * deltaSeconds);
@@ -795,6 +962,9 @@ export class Game {
         this.generatedLevel.bounds,
         this.camPreviewPos,
         this.camPreviewTarget,
+        this.cameraZoomScale,
+        this.previewPanOffset.x,
+        this.previewPanOffset.y,
       );
       this.camera.position.copy(this.camPreviewPos);
       this.camera.lookAt(this.camPreviewTarget);
@@ -812,6 +982,7 @@ export class Game {
         this.camGameplayTarget,
         this.ball.position.y,
         this.cameraYawOffset,
+        this.cameraZoomScale,
       );
       this.applyCameraBlend(this.cameraBlend);
       if (this.cameraBlend >= 1) {
@@ -858,8 +1029,13 @@ export class Game {
       );
 
       /** Roll whenever the ball is on / near the deck (physics y is contact/bottom) */
+      const supportY = this.physics.surfaceHeightAt(
+        this.ball.position.x,
+        this.ball.position.z,
+      );
       if (
-        this.ball.position.y <= 0.02 &&
+        supportY !== null &&
+        this.ball.position.y <= supportY + 0.02 &&
         Math.abs(this.physics.velocity.y) < 0.85
       ) {
         this.ball.applyPlanarRoll(

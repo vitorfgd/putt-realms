@@ -27,8 +27,24 @@ function pickKind(rng: () => number): HazardKind {
  */
 function eligibleStraightTileIndices(tiles: readonly PlacedTile[]): number[] {
   const out: number[] = [];
+  const stationValues = tiles
+    .map((tile) => tile.stationIndex)
+    .filter((station): station is number => typeof station === "number");
+  const minStation = stationValues.length > 0 ? Math.min(...stationValues) : 0;
+  const maxStation =
+    stationValues.length > 0 ? Math.max(...stationValues) : tiles.length - 1;
   for (let i = 2; i <= tiles.length - 2; i++) {
-    if (tiles[i].type === "straight") {
+    const tile = tiles[i];
+    const station = tile.stationIndex;
+    const isFirstOrLastStation =
+      station !== undefined &&
+      (station <= minStation + 1 || station >= maxStation - 1);
+    if (
+      tile.type === "straight" &&
+      tile.hazardSafe !== false &&
+      !tile.isRamp &&
+      !isFirstOrLastStation
+    ) {
       out.push(i);
     }
   }

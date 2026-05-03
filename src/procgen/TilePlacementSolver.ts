@@ -132,6 +132,7 @@ function pushDoubleRowTile(
     deck: THREE.Vector3;
     rotationY: number;
     railS?: { sx: 1 | -1; sz: 1 | -1 };
+    stationIndex?: number;
   },
 ): void {
   const def = getTileDefinition(params.tileType);
@@ -148,6 +149,7 @@ function pushDoubleRowTile(
     exitSocket: def.exitSocket,
     modelKey: def.modelKey,
     ...(params.railS ? { railS: params.railS } : {}),
+    ...(params.stationIndex !== undefined ? { stationIndex: params.stationIndex } : {}),
   });
 }
 
@@ -493,6 +495,7 @@ function solveDoubleRowCurvedPath(
       tileType,
       deck: deckScratch,
       rotationY,
+      stationIndex: station,
       ...(tileType === "convex_right_wall"
         ? { railS: { sx: 1 as const, sz: -1 as const } }
         : {}),
@@ -705,6 +708,7 @@ export function solveDoubleRowStraightPath(
       entrySocket: def.entrySocket,
       exitSocket: def.exitSocket,
       modelKey: def.modelKey,
+      stationIndex: z,
     });
   }
 
@@ -795,6 +799,7 @@ export function solveTilesAlongPath(
       entrySocket: def.entrySocket,
       exitSocket: def.exitSocket,
       modelKey: def.modelKey,
+      stationIndex: i,
     });
 
     // Advance elevation after this tile (affects the next tile's entry).

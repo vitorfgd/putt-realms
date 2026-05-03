@@ -53,7 +53,15 @@ function pushSeg(
 ): void {
   const a = localToWorldXZ(lax, laz, tile);
   const b = localToWorldXZ(lbx, lbz, tile);
-  out.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
+  const y = tile.worldY ?? 0;
+  out.push({
+    ax: a.x,
+    az: a.z,
+    bx: b.x,
+    bz: b.z,
+    yMin: y - 0.35,
+    yMax: y + 1.8,
+  });
 }
 
 function parallelPair(tile: PlacedTile, out: RailCapsule[]): void {
@@ -85,7 +93,15 @@ function curveRails(tile: PlacedTile, out: RailCapsule[]): void {
     if (!first) {
       const a = localToWorldXZ(px, pz, tile);
       const b = localToWorldXZ(lx, lz, tile);
-      out.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
+      const y = tile.worldY ?? 0;
+      out.push({
+        ax: a.x,
+        az: a.z,
+        bx: b.x,
+        bz: b.z,
+        yMin: y - 0.35,
+        yMax: y + 1.8,
+      });
     }
     first = false;
     px = lx;

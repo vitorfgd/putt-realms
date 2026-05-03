@@ -24,6 +24,7 @@ import {
 import { generateHazardSpecs } from "./generateHazardSpecs";
 import { bendOuterRailSigns } from "./bendOuterRails";
 import { buildRailColliders } from "./railColliders";
+import { buildFlatCourseSurfaceFromTiles } from "./courseSurface";
 
 export interface GenerateLevelOptions {
   rng?: () => number;
@@ -307,6 +308,7 @@ export class LevelGenerator {
       startPosition: { x: fwx.x + backX, y: 0, z: fwx.z + backZ },
       holePosition: { x: lwx.x, y: 0, z: lwx.z },
       bounds,
+      surface: buildFlatCourseSurfaceFromTiles(tiles),
       railColliders: buildRailColliders(tiles),
     };
   }

@@ -5,6 +5,7 @@ export interface DragShotContext {
   isInteractionEnabled?: () => boolean;
   readonly camera: THREE.PerspectiveCamera;
   readonly planeY: number;
+  readonly getPlaneY?: () => number;
   readonly ballRadius: number;
   readonly minDragWorld: number;
   readonly maxDragWorld: number;
@@ -101,7 +102,7 @@ export class DragShotInput {
   private intersectLane(clientX: number, clientY: number): THREE.Vector3 | null {
     this.clientToNdc(clientX, clientY);
     this.raycaster.setFromCamera(this.ndc, this.ctx.camera);
-    this.plane.constant = -this.ctx.planeY;
+    this.plane.constant = -(this.ctx.getPlaneY?.() ?? this.ctx.planeY);
     const hit = new THREE.Vector3();
     return this.raycaster.ray.intersectPlane(this.plane, hit);
   }
