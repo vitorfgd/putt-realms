@@ -10,10 +10,7 @@ import { createHazardInstances } from "../hazards/implementations";
 import { StrokeController } from "../gameplay/StrokeController";
 import { CameraOrbitInput } from "../input/CameraOrbitInput";
 import { DragShotInput, type DragShotContext } from "../input/DragShotInput";
-import {
-  LevelBuilder,
-  adaptProcgenMapToGeneratedLevel,
-} from "../level/LevelBuilder";
+import { LevelBuilder } from "../level/LevelBuilder";
 import {
   createLevelBackdropMesh,
   loadLevelBackgroundTexture,
@@ -21,8 +18,6 @@ import {
 } from "../level/levelBackground";
 import { createSkyCloudBackdrop } from "../level/skyClouds";
 import type { GeneratedLevel, LevelWorldBounds } from "../level/LevelTypes";
-import { LevelGenerator } from "../level/LevelGenerator";
-import { mapGenerationEndpoint } from "../procgen/MapGenerationEndpoint";
 import { holeCupRadius } from "../level/TileDimensions";
 import { BALL_COSMETIC_BODY_HEX } from "../cosmetics/cosmeticCatalog";
 import { CosmeticService } from "../cosmetics/CosmeticService";
@@ -30,8 +25,6 @@ import { EconomyService } from "../economy/EconomyService";
 import { Hud } from "../ui/Hud";
 import {
   GAMEPLAY_ASPECT,
-  GAMEPLAY_CAMERA_BLEND_DURATION,
-  HOLE_CELEBRATION_DURATION,
   HOLE_ORBIT_DAMP,
   HOLE_PULL_RADIUS,
   HOLE_RADIAL_PULL_ACCEL,
@@ -44,19 +37,15 @@ import {
   MIN_DRAG_WORLD,
   OOB_MESSAGE_DURATION,
   OOB_Z_EXTRA,
-  POST_HOLE_LEVEL_DELAY,
   POWER_FULL_DRAG_WORLD,
   PREVIEW_CAMERA_DURATION,
   GAMEPLAY_CAM_BACK_DIST,
-  GAMEPLAY_CAM_FOLLOW_SMOOTH,
   GAMEPLAY_CAM_HEIGHT,
   CAM_ORBIT_RAD_PER_PX,
-  CAM_ORBIT_YAW_MAX,
   SKY_BLUE,
   STUCK_SKIP_MIN_DIST_FROM_HOLE,
   STUCK_SKIP_PLANAR_SPEED,
   STUCK_SKIP_SECONDS,
-  USE_PROCGEN_ENDPOINT,
 } from "./Constants";
 import {
   RunEvent,
@@ -64,6 +53,17 @@ import {
   RunStateMachine,
 } from "./RunStateMachine";
 import { GameAudio } from "../platform-browser/GameAudio";
+import { GameCameraController } from "./GameCameraController";
+import { PlayableLevelService } from "./PlayableLevelService";
+import { ShotEffects } from "../gameplay/ShotEffects";
+import { CollectibleController } from "../gameplay/CollectibleController";
+import { FantasyVoidLayer } from "../level/fantasyVoid";
+import { GameOverlays } from "../ui/GameOverlays";
+import {
+  TelemetryService,
+  type HoleStatsDraft,
+} from "../progression/TelemetryService";
+import { QuestService } from "../progression/QuestService";
 
 /** Cup mesh is tilted to XZ — spin around world Y so the portal swirls in the grass plane */
 const HOLE_PORTAL_WORLD_UP = new THREE.Vector3(0, 1, 0);
@@ -71,50 +71,11 @@ const HOLE_PORTAL_WORLD_UP = new THREE.Vector3(0, 1, 0);
 /** Letterbox bars — deep sky hue (not harsh black) */
 const LETTERBOX_CLEAR = 0x3d78a8;
 const START_LEVEL_INDEX = 1;
-const PROCGEN_RETRY_COUNT = 4;
 const MIN_CAMERA_ZOOM = 0.58;
 const MAX_CAMERA_ZOOM = 1.9;
 
-interface ProcgenGameplayConfig {
-  progressionLevel: number;
-  displayTargetDifficulty: number;
-  maxTiles: number;
-  allowCurves: boolean;
-  allowRamps: boolean;
-}
-
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
-}
-
-function hashSeed(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(a: number): () => number {
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function procgenGameplayConfig(levelIndex: number): ProcgenGameplayConfig {
-  const progressionLevel = clamp(Math.round(levelIndex), 1, 20);
-  return {
-    progressionLevel,
-    displayTargetDifficulty: Math.round(((progressionLevel - 1) / 19) * 10),
-    maxTiles: 16 + progressionLevel * 5,
-    allowCurves: progressionLevel >= 2,
-    allowRamps: progressionLevel >= 3,
-  };
 }
 
 function computePortraitGameplayRect(
@@ -218,15 +179,19 @@ export class Game {
   private readonly strokeController = new StrokeController();
   private readonly economy = new EconomyService();
   private readonly cosmetics = new CosmeticService();
-  private readonly levelGenerator = new LevelGenerator();
+  private readonly levelService = new PlayableLevelService();
   private readonly levelBuilder = new LevelBuilder();
+  private readonly telemetry = new TelemetryService();
+  private readonly quests = new QuestService();
+  private readonly collectibles = new CollectibleController();
+  private readonly cameraController: GameCameraController;
+  private readonly overlays: GameOverlays;
   private readonly ballWorldScratch = new THREE.Vector3();
   private readonly lastShotPosition = new THREE.Vector3();
   private readonly camGameplayPos = new THREE.Vector3();
   private readonly camGameplayTarget = new THREE.Vector3();
   private readonly camPreviewPos = new THREE.Vector3();
   private readonly camPreviewTarget = new THREE.Vector3();
-  private readonly camFollowIdeal = new THREE.Vector3();
   private readonly hazardEnvScratch: HazardEnvironmental = {
     frictionScale: 1,
     accelX: 0,
@@ -243,7 +208,6 @@ export class Game {
   private previousDifficultyScore: number | undefined = undefined;
 
   private previewTimer = PREVIEW_CAMERA_DURATION;
-  private cameraBlend = 0;
   private levelCompleteTimer = 0;
   private celebrationShown = false;
   private oobTimer = 0;
@@ -254,6 +218,19 @@ export class Game {
   private freeSkipFromStuck = false;
   private coinsToastTimer = 0;
   private readonly audio = new GameAudio();
+  private shotEffects!: ShotEffects;
+  private voidLayer: FantasyVoidLayer | null = null;
+  private paused = false;
+  private currentTurnCount = 0;
+  private currentRampCount = 0;
+  private holeCollectedCoinValue = 0;
+  private holeStats: HoleStatsDraft = {
+    oobCount: 0,
+    restarts: 0,
+    skips: 0,
+    hazardHits: 0,
+    coinPickups: 0,
+  };
 
   private gameplayRect = { x: 0, y: 0, width: 1, height: 1 };
   private lastFrameTime = 0;
@@ -273,8 +250,11 @@ export class Game {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     hudRoot: HTMLElement,
+    overlayRoot: HTMLElement = hudRoot.parentElement ?? document.body,
   ) {
     this.camera = new THREE.PerspectiveCamera(48, GAMEPLAY_ASPECT, 0.1, 1200);
+    this.cameraController = new GameCameraController(this.camera);
+    this.overlays = new GameOverlays(overlayRoot);
     this.scene.add(this.courseGroup);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -307,6 +287,9 @@ export class Game {
 
     this.ball = new Ball();
     this.scene.add(this.ball);
+    this.shotEffects = new ShotEffects(this.ball);
+    this.scene.add(this.shotEffects.group);
+    this.courseGroup.add(this.collectibles.group);
 
     this.aimIndicator = new AimIndicator(MAX_DRAG_WORLD);
     this.ball.add(this.aimIndicator);
@@ -320,22 +303,30 @@ export class Game {
       BALL_COSMETIC_BODY_HEX[this.cosmetics.getEquippedBallCosmetic()],
     );
     this.hud.bindSkip(() => this.requestSkipLevel());
+    this.overlays.syncAudioSettings(this.audio.getSettings());
+    this.overlays.onPauseChange = (paused) => {
+      this.paused = paused;
+    };
+    this.overlays.onRestart = () => this.restartHole();
+    this.overlays.onContinue = () => {
+      if (this.run.getPhase() === RunPhase.LevelComplete && this.celebrationShown) {
+        this.hud.hideToast();
+        this.advanceLevelAfterHole();
+      }
+    };
+    this.overlays.onAudioSettings = (settings) => {
+      this.audio.setSettings(settings);
+      this.overlays.syncAudioSettings(this.audio.getSettings());
+    };
+    this.overlays.onUiSound = () => this.audio.playNamed("ui");
 
     this.run.onPhaseChange((phase) => {
       this.audio.syncForPhase(phase, this.currentLevelIndex);
       if (phase === RunPhase.PreviewCamera) {
-        this.previewTimer = this.previewDurationForCurrentLevel();
-        computeTopDownCameraPose(
-          this.generatedLevel.bounds,
-          this.camPreviewPos,
-          this.camPreviewTarget,
-          this.cameraZoomScale,
-          this.previewPanOffset.x,
-          this.previewPanOffset.y,
-        );
+        this.previewTimer = this.cameraController.previewDuration();
       }
       if (phase === RunPhase.TransitioningCamera) {
-        this.cameraBlend = 0;
+        this.cameraController.beginTransition(this.ball.position);
         computeBallFollowCameraPose(
           this.ball.position.x,
           this.ball.position.z,
@@ -352,10 +343,14 @@ export class Game {
         this.levelCompleteTimer = 0;
         this.celebrationShown = false;
         this.physics.settleHard();
+        this.shotEffects.onHoleScore(this.ball.position);
       }
       if (phase === RunPhase.ResolvingOOB) {
+        this.holeStats.oobCount++;
         this.oobTimer = OOB_MESSAGE_DURATION;
         this.hud.showOutOfBounds();
+        this.audio.playNamed("oob");
+        this.shotEffects.onOob();
         this.physics.settleHard();
         this.ball.position.x = this.lastShotPosition.x;
         this.ball.position.z = this.lastShotPosition.z;
@@ -386,6 +381,8 @@ export class Game {
       },
       onShot: (shotDirectionXZ, power01) => {
         this.audio.playHit();
+        this.shotEffects.onShot(power01, shotDirectionXZ);
+        this.cameraController.kick(power01);
         this.lastShotPosition.copy(this.ball.position);
         this.run.dispatch(RunEvent.ShotReleased);
         this.strokeController.recordStroke();
@@ -417,20 +414,14 @@ export class Game {
           (p === RunPhase.PreviewCamera || p === RunPhase.AwaitingShot);
       },
       addYaw: (d) => {
-        const next = this.cameraYawOffset + d;
-        this.cameraYawOffset = Math.max(
-          -CAM_ORBIT_YAW_MAX,
-          Math.min(CAM_ORBIT_YAW_MAX, next),
-        );
+        this.cameraYawOffset += d;
+        this.cameraController.addYaw(d);
       },
       addZoom: (delta) => {
-        this.cameraZoomScale = clamp(
-          this.cameraZoomScale * Math.exp(delta * 0.001),
-          MIN_CAMERA_ZOOM,
-          MAX_CAMERA_ZOOM,
-        );
+        this.cameraController.addZoom(delta);
       },
-      addPan: (dx, dy) => this.panPreviewCamera(dx, dy),
+      addPan: (dx, dy) =>
+        this.cameraController.panPreview(dx, dy, this.gameplayRect.height),
     });
     this.cameraOrbit.attach();
 
@@ -454,11 +445,21 @@ export class Game {
   }
 
   private loadLevel(levelIndex: number, isFirst: boolean): void {
+    this.overlays.showLoading(true);
     this.cameraYawOffset = 0;
     this.cameraZoomScale = 1;
     this.previewPanOffset.set(0, 0);
     this.stuckTimer = 0;
     this.freeSkipFromStuck = false;
+    this.holeCollectedCoinValue = 0;
+    this.holeStats = {
+      oobCount: 0,
+      restarts: 0,
+      skips: 0,
+      hazardHits: 0,
+      coinPickups: 0,
+    };
+    this.disposeVoidLayer();
     this.disposeSkyBackdrop();
     this.disposeCourse();
     this.generatedLevel = this.generatePlayableLevel(levelIndex);
@@ -474,6 +475,8 @@ export class Game {
       Math.random,
     );
     this.scene.add(this.skyBackdrop);
+    this.voidLayer = new FantasyVoidLayer(this.generatedLevel.bounds);
+    this.scene.add(this.voidLayer);
 
     this.hazardInstances = createHazardInstances(
       this.generatedLevel.hazardSpecs,
@@ -482,6 +485,8 @@ export class Game {
     for (const h of this.hazardInstances) {
       this.courseGroup.add(h.group);
     }
+    this.collectibles.reset(this.generatedLevel.collectibles);
+    this.courseGroup.add(this.collectibles.group);
     this.configureShadowsForCourse();
     this.strokeController.resetHole();
 
@@ -498,10 +503,13 @@ export class Game {
     }
     this.physics.setSurface(this.generatedLevel.surface);
     this.physics.setRailColliders(this.generatedLevel.railColliders);
+    this.shotEffects.setSurface(this.generatedLevel.surface);
 
     this.placeBallAtTee();
     this.lastShotPosition.copy(this.ball.position);
     this.ball.resetVisual();
+    this.cameraController.resetForLevel(this.generatedLevel, this.ball.position);
+    this.cameraController.updateFog(this.scene);
 
     computeBallFollowCameraPose(
       this.ball.position.x,
@@ -534,8 +542,8 @@ export class Game {
       seed: this.generatedLevel.procgenSeed,
       progressionLevel: this.generatedLevel.progressionLevel,
       tileCount: this.generatedLevel.tiles.length,
-      turnCount: this.countGeneratedTurns(),
-      rampCount: this.generatedLevel.tiles.filter((tile) => tile.isRamp).length,
+      turnCount: this.currentTurnCount,
+      rampCount: this.currentRampCount,
     });
     this.hud.setStrokes(0);
     this.hud.setCoins(this.economy.getCoins());
@@ -543,108 +551,44 @@ export class Game {
     this.ball.applyCosmeticTint(
       BALL_COSMETIC_BODY_HEX[this.cosmetics.getEquippedBallCosmetic()],
     );
+    if (this.gameLoopStarted) {
+      this.showLevelIntroOverlays();
+    }
+    window.setTimeout(() => this.overlays.showLoading(false), 220);
+    this.audio.playNamed("level");
+  }
+
+  private showLevelIntroOverlays(): void {
+    this.overlays.showRoute(this.generatedLevel);
+    this.overlays.showTutorialOnce(
+      "drag",
+      "Drag to Putt",
+      "Pull from the ball, release, then use the preview to plan bigger realm holes.",
+    );
+    if (this.generatedLevel.collectibles.length > 0) {
+      this.overlays.showTutorialOnce(
+        "coins",
+        "Collect Realm Coins",
+        "Coins appear on safe straight tiles. Roll through them before sinking the shot.",
+      );
+    }
+    if (this.generatedLevel.tiles.some((tile) => tile.isRamp)) {
+      this.overlays.showTutorialOnce(
+        "ramps",
+        "Ramps Change Height",
+        "Bright arrows mark slopes. The ball really rolls up, down, and onto elevated decks.",
+      );
+    }
   }
 
   private generatePlayableLevel(levelIndex: number): GeneratedLevel {
-    if (!USE_PROCGEN_ENDPOINT) {
-      return this.levelGenerator.generate(levelIndex, {
-        previousDifficultyScore: this.previousDifficultyScore,
-      });
-    }
-
-    const config = procgenGameplayConfig(levelIndex);
-    const baseSeed = `putt-${levelIndex}-v2`;
-    for (let attempt = 0; attempt < PROCGEN_RETRY_COUNT; attempt++) {
-      const seed = attempt === 0 ? baseSeed : `${baseSeed}-retry-${attempt}`;
-      try {
-        const procMap = mapGenerationEndpoint.generateMap({
-          seed,
-          levelIndex,
-          targetDifficulty: config.progressionLevel,
-          maxTiles: config.maxTiles,
-          allowRamps: config.allowRamps,
-          allowCurves: config.allowCurves,
-        });
-        return adaptProcgenMapToGeneratedLevel(procMap, {
-          levelIndex,
-          targetDifficultyRounded: config.displayTargetDifficulty,
-          rng: mulberry32(hashSeed(`${seed}|hazards`)),
-        });
-      } catch (err) {
-        console.warn("Procgen gameplay map rejected, retrying", {
-          levelIndex,
-          seed,
-          err,
-        });
-      }
-    }
-
-    const fallback = this.levelGenerator.generate(levelIndex, {
-      previousDifficultyScore: this.previousDifficultyScore,
-    });
-    fallback.imperfectDifficulty = true;
-    fallback.procgenDebugInfo = {
-      procgenFallback: true,
-      attemptedSeed: baseSeed,
-      retryCount: PROCGEN_RETRY_COUNT,
-      progressionConfig: config,
-    };
-    return fallback;
-  }
-
-  private previewDurationForCurrentLevel(): number {
-    const span = Math.max(
-      this.generatedLevel.bounds.maxX - this.generatedLevel.bounds.minX,
-      this.generatedLevel.bounds.maxZ - this.generatedLevel.bounds.minZ,
+    const generated = this.levelService.generate(
+      levelIndex,
+      this.previousDifficultyScore,
     );
-    return PREVIEW_CAMERA_DURATION + clamp((span - 42) / 120, 0, 1.6);
-  }
-
-  private panPreviewCamera(dxPixels: number, dyPixels: number): void {
-    const phase = this.run.getPhase();
-    if (phase !== RunPhase.PreviewCamera) return;
-    const span = Math.max(
-      32,
-      this.generatedLevel.bounds.maxX - this.generatedLevel.bounds.minX,
-      this.generatedLevel.bounds.maxZ - this.generatedLevel.bounds.minZ,
-    );
-    const worldPerPixel =
-      (span * this.cameraZoomScale) / Math.max(1, this.gameplayRect.height);
-    this.previewPanOffset.x -= dxPixels * worldPerPixel;
-    this.previewPanOffset.y += dyPixels * worldPerPixel;
-    const limit = span * 0.55;
-    this.previewPanOffset.x = clamp(this.previewPanOffset.x, -limit, limit);
-    this.previewPanOffset.y = clamp(this.previewPanOffset.y, -limit, limit);
-  }
-
-  private countGeneratedTurns(): number {
-    const spine = this.generatedLevel.procgenDebugInfo?.["spinePath"];
-    if (Array.isArray(spine)) {
-      let turns = 0;
-      for (let i = 1; i < spine.length - 1; i++) {
-        const a = spine[i - 1] as { x?: unknown; z?: unknown };
-        const b = spine[i] as { x?: unknown; z?: unknown };
-        const c = spine[i + 1] as { x?: unknown; z?: unknown };
-        if (
-          typeof a.x === "number" &&
-          typeof a.z === "number" &&
-          typeof b.x === "number" &&
-          typeof b.z === "number" &&
-          typeof c.x === "number" &&
-          typeof c.z === "number"
-        ) {
-          const dx1 = b.x - a.x;
-          const dz1 = b.z - a.z;
-          const dx2 = c.x - b.x;
-          const dz2 = c.z - b.z;
-          if (dx1 !== dx2 || dz1 !== dz2) turns++;
-        }
-      }
-      return turns;
-    }
-    return this.generatedLevel.tiles.filter(
-      (tile) => tile.type === "corner" || tile.type === "curve",
-    ).length;
+    this.currentTurnCount = generated.turnCount;
+    this.currentRampCount = generated.rampCount;
+    return generated.level;
   }
 
   private disposeSkyBackdrop(): void {
@@ -654,6 +598,13 @@ export class Game {
     this.skyBackdrop = null;
   }
 
+  private disposeVoidLayer(): void {
+    if (!this.voidLayer) return;
+    this.scene.remove(this.voidLayer);
+    disposeObject3D(this.voidLayer);
+    this.voidLayer = null;
+  }
+
   private disposeCourse(): void {
     this.holeFlagMixers = [];
     for (const h of this.hazardInstances) {
@@ -661,6 +612,7 @@ export class Game {
       h.dispose();
     }
     this.hazardInstances = [];
+    this.collectibles.clear();
     while (this.courseGroup.children.length) {
       const c = this.courseGroup.children[0];
       this.courseGroup.remove(c);
@@ -692,6 +644,19 @@ export class Game {
     this.run.dispatch(RunEvent.LevelSpawned);
   }
 
+  private restartHole(): void {
+    this.holeStats.restarts++;
+    this.telemetry.record(this.generatedLevel, this.holeStats, {
+      strokes: this.strokeController.getStrokes(),
+      turnCount: this.currentTurnCount,
+      result: "restarted",
+    });
+    this.economy.removeCoins(this.holeCollectedCoinValue);
+    this.run.forcePhase(RunPhase.LevelSpawning);
+    this.loadLevel(this.currentLevelIndex, false);
+    this.run.dispatch(RunEvent.LevelSpawned);
+  }
+
   private requestSkipLevel(): void {
     if (this.strokeController.getStrokes() < 1) return;
     const phase = this.run.getPhase();
@@ -703,6 +668,13 @@ export class Game {
     if (!this.economy.attemptSkip(diff, imperfect, this.freeSkipFromStuck)) {
       return;
     }
+    this.holeStats.skips++;
+    this.telemetry.record(this.generatedLevel, this.holeStats, {
+      strokes: this.strokeController.getStrokes(),
+      turnCount: this.currentTurnCount,
+      result: "skipped",
+    });
+    this.audio.playNamed("skip");
     window.clearTimeout(this.coinsToastTimer);
     this.hud.hideToast();
     this.freeSkipFromStuck = false;
@@ -712,6 +684,20 @@ export class Game {
     this.run.forcePhase(RunPhase.LevelSpawning);
     this.loadLevel(this.currentLevelIndex, false);
     this.run.dispatch(RunEvent.LevelSpawned);
+  }
+
+  private unlockMilestoneCosmetic(): string | undefined {
+    const level = this.generatedLevel.progressionLevel ?? this.generatedLevel.levelIndex;
+    const unlocks: Array<{ at: number; id: keyof typeof BALL_COSMETIC_BODY_HEX; name: string }> = [
+      { at: 5, id: "gold", name: "Royal Gold" },
+      { at: 10, id: "emerald", name: "Forest Emerald" },
+      { at: 15, id: "ruby", name: "Ember Ruby" },
+      { at: 20, id: "sapphire", name: "Sky Sapphire" },
+    ];
+    const hit = unlocks.find((u) => u.at === level);
+    if (!hit || this.cosmetics.isUnlocked(hit.id)) return undefined;
+    this.cosmetics.unlock(hit.id);
+    return hit.name;
   }
 
   private updateSkipUi(phase: RunPhase): void {
@@ -779,6 +765,7 @@ export class Game {
     if (this.gameLoopStarted) return;
     this.gameLoopStarted = true;
     this.audio.tryUnlock();
+    this.showLevelIntroOverlays();
     this.lastFrameTime = performance.now();
     this.rafId = requestAnimationFrame(this.frame);
   }
@@ -803,6 +790,8 @@ export class Game {
     this.cameraOrbit.dispose();
     this.input.dispose();
     this.disposeLevelBackdrop();
+    this.shotEffects.dispose();
+    this.disposeVoidLayer();
     this.disposeSkyBackdrop();
     this.disposeCourse();
   }
@@ -904,40 +893,15 @@ export class Game {
     return dx * dx + dz * dz <= this.holeScoreRadius() ** 2;
   }
 
-  private applyCameraBlend(t: number): void {
-    const k = Math.min(1, Math.max(0, t));
-    this.camera.position.lerpVectors(this.camPreviewPos, this.camGameplayPos, k);
-    const tgt = new THREE.Vector3().lerpVectors(
-      this.camPreviewTarget,
-      this.camGameplayTarget,
-      k,
-    );
-    this.camera.lookAt(tgt);
-  }
-
   /** Closer third-person follow — updates every frame during interactive play */
-  private smoothFollowGameplayCamera(deltaSeconds: number): void {
-    const hp = this.generatedLevel.holePosition;
-    computeBallFollowCameraPose(
-      this.ball.position.x,
-      this.ball.position.z,
-      hp.x,
-      hp.z,
-      this.camFollowIdeal,
-      this.camGameplayTarget,
-      this.ball.position.y,
-      this.cameraYawOffset,
-      this.cameraZoomScale,
-    );
-    const alpha =
-      1 - Math.exp(-GAMEPLAY_CAM_FOLLOW_SMOOTH * deltaSeconds);
-    this.camera.position.lerp(this.camFollowIdeal, alpha);
-    this.camera.lookAt(this.camGameplayTarget);
-  }
-
   private frame = (now: number): void => {
     const deltaSeconds = Math.min(0.05, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
+    if (this.paused) {
+      this.renderGameplayViewport();
+      this.rafId = requestAnimationFrame(this.frame);
+      return;
+    }
 
     this.courseGroup.traverse((o) => {
       if (o.name === "HolePortalSurface") {
@@ -953,41 +917,22 @@ export class Game {
     for (const m of this.holeFlagMixers) {
       m.update(deltaSeconds);
     }
+    this.voidLayer?.update(deltaSeconds);
+    this.shotEffects.update(deltaSeconds);
+    this.collectibles.update(deltaSeconds);
 
     const phase = this.run.getPhase();
 
     if (phase === RunPhase.PreviewCamera) {
       this.previewTimer -= deltaSeconds;
-      computeTopDownCameraPose(
-        this.generatedLevel.bounds,
-        this.camPreviewPos,
-        this.camPreviewTarget,
-        this.cameraZoomScale,
-        this.previewPanOffset.x,
-        this.previewPanOffset.y,
-      );
-      this.camera.position.copy(this.camPreviewPos);
-      this.camera.lookAt(this.camPreviewTarget);
+      const elapsed01 =
+        1 - this.previewTimer / Math.max(0.001, this.cameraController.previewDuration());
+      this.cameraController.updatePreview(elapsed01);
       if (this.previewTimer <= 0) {
         this.run.dispatch(RunEvent.PreviewDurationElapsed);
       }
     } else if (phase === RunPhase.TransitioningCamera) {
-      this.cameraBlend += deltaSeconds / GAMEPLAY_CAMERA_BLEND_DURATION;
-      computeBallFollowCameraPose(
-        this.ball.position.x,
-        this.ball.position.z,
-        this.generatedLevel.holePosition.x,
-        this.generatedLevel.holePosition.z,
-        this.camGameplayPos,
-        this.camGameplayTarget,
-        this.ball.position.y,
-        this.cameraYawOffset,
-        this.cameraZoomScale,
-      );
-      this.applyCameraBlend(this.cameraBlend);
-      if (this.cameraBlend >= 1) {
-        this.camera.position.copy(this.camGameplayPos);
-        this.camera.lookAt(this.camGameplayTarget);
+      if (this.cameraController.updateTransition(deltaSeconds, this.ball.position)) {
         this.run.dispatch(RunEvent.GameplayCameraReady);
       }
     } else if (phase === RunPhase.BallInFlight) {
@@ -1056,8 +1001,26 @@ export class Game {
       if (surfaceBump || hazardHit) {
         this.audio.playBallBump();
       }
+      if (surfaceBump) {
+        this.shotEffects.onRailBump();
+      }
       if (hazardHit) {
+        this.holeStats.hazardHits++;
         this.flashHazardHit();
+        this.shotEffects.onHazardHit();
+        this.audio.playNamed("hazard");
+      }
+
+      const coinHits = this.collectibles.collectNear(
+        this.ball.position,
+        Ball.RADIUS * 2.4,
+      );
+      for (const hit of coinHits) {
+        this.holeStats.coinPickups++;
+        this.holeCollectedCoinValue += hit.value;
+        this.economy.addCoins(hit.value);
+        this.shotEffects.onCoinPickup(hit.position);
+        this.audio.playNamed("coin");
       }
 
       let bridgeOob = false;
@@ -1110,11 +1073,38 @@ export class Game {
         if (!this.celebrationShown) {
           this.celebrationShown = true;
           const hio = this.strokeController.getStrokes() === 1;
+          const underPar =
+            this.strokeController.getStrokes() <= this.generatedLevel.par;
+          const unlockedCosmetic = this.unlockMilestoneCosmetic();
+          this.quests.recordHole({
+            underPar,
+            coinsCollected: this.collectibles.getCollectedValue(),
+            hazardless: this.holeStats.hazardHits === 0,
+            dailyChallenge: false,
+          });
+          this.telemetry.record(this.generatedLevel, this.holeStats, {
+            strokes: this.strokeController.getStrokes(),
+            turnCount: this.currentTurnCount,
+            result: "completed",
+          });
           if (hio) {
             const payout = this.economy.awardHoleInOne(
               this.generatedLevel.difficultyScore,
             );
             this.hud.showHoleCelebration(true);
+            this.overlays.showSummary({
+              strokes: this.strokeController.getStrokes(),
+              par: this.generatedLevel.par,
+              coinsCollected: this.collectibles.getCollectedValue(),
+              rewardCoins: payout,
+              seed: this.generatedLevel.procgenSeed,
+              difficulty: this.generatedLevel.difficultyScore,
+              realmName:
+                this.generatedLevel.progressionSummary?.realmName ?? "Putt Realm",
+              unlockedCosmetic,
+              questProgress: this.quests.getProgress(),
+            });
+            this.audio.playNamed("reward");
             window.clearTimeout(this.coinsToastTimer);
             this.coinsToastTimer = window.setTimeout(() => {
               this.hud.showCoinsEarned(payout);
@@ -1123,18 +1113,22 @@ export class Game {
           } else {
             this.economy.recordNonHoleInOneCompletion();
             this.hud.showHoleCelebration(false);
+            this.overlays.showSummary({
+              strokes: this.strokeController.getStrokes(),
+              par: this.generatedLevel.par,
+              coinsCollected: this.collectibles.getCollectedValue(),
+              rewardCoins: 0,
+              seed: this.generatedLevel.procgenSeed,
+              difficulty: this.generatedLevel.difficultyScore,
+              realmName:
+                this.generatedLevel.progressionSummary?.realmName ?? "Putt Realm",
+              unlockedCosmetic,
+              questProgress: this.quests.getProgress(),
+            });
           }
         }
       }
 
-      const doneAt =
-        HOLE_SINK_DURATION +
-        HOLE_CELEBRATION_DURATION +
-        POST_HOLE_LEVEL_DELAY;
-      if (t >= doneAt) {
-        this.hud.hideToast();
-        this.advanceLevelAfterHole();
-      }
     } else if (phase === RunPhase.ResolvingOOB) {
       this.oobTimer -= deltaSeconds;
       if (this.oobTimer <= 0) {
@@ -1179,7 +1173,7 @@ export class Game {
       phase !== RunPhase.PreviewCamera &&
       phase !== RunPhase.TransitioningCamera
     ) {
-      this.smoothFollowGameplayCamera(deltaSeconds);
+      this.cameraController.updateFollow(deltaSeconds, this.ball.position);
     }
 
     this.prevPhase = phase;

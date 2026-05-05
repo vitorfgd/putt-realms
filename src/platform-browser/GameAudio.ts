@@ -12,6 +12,26 @@ const PATH = {
 
 /** Level BGM order: was bg2/bg3 alternating; `bg_1` is the third track per round. */
 const GAMEPLAY_BGM = [PATH.bg2, PATH.bg3, PATH.bg1] as const;
+const LS_AUDIO = "pmg_audio_settings_v1";
+
+export interface AudioSettings {
+  musicMuted: boolean;
+  sfxMuted: boolean;
+  musicVolume: number;
+  sfxVolume: number;
+}
+
+type AudioCueName =
+  | "hit"
+  | "rail"
+  | "hazard"
+  | "oob"
+  | "hole"
+  | "coin"
+  | "ui"
+  | "reward"
+  | "skip"
+  | "level";
 
 /**
  * Browser HTMLAudio — paths are under Vite `public/` (e.g. `public/assets/audio/…`).
@@ -20,22 +40,33 @@ export class GameAudio {
   private unlocked = false;
   private gameplay: HTMLAudioElement | null = null;
   private gameplayKey: string | null = null;
+  private ambient: HTMLAudioElement | null = null;
+  private audioCtx: AudioContext | null = null;
   private lastBumpMs = 0;
+  private settings: AudioSettings = {
+    musicMuted: false,
+    sfxMuted: false,
+    musicVolume: 0.36,
+    sfxVolume: 1,
+  };
+
+  constructor() {
+    this.loadSettings();
+  }
 
   /** Call after a user gesture so `play()` is not rejected (autoplay policy). */
   tryUnlock(): void {
     this.unlocked = true;
+    this.ensureAudioContext()?.resume().catch(() => {});
   }
 
   playHit(): void {
-    if (!this.unlocked) return;
-    void this.playOneShot(PATH.hit, 0.88);
+    this.playNamed("hit");
   }
 
   /** Hole-in / cup success */
   playBell(): void {
-    if (!this.unlocked) return;
-    void this.playOneShot(PATH.bell, 0.92);
+    this.playNamed("hole");
   }
 
   /** Rails, bounds, hazards — throttled to avoid machine-gun on multi-contact frames */
@@ -44,7 +75,57 @@ export class GameAudio {
     const t = performance.now();
     if (t - this.lastBumpMs < 85) return;
     this.lastBumpMs = t;
-    void this.playOneShot(PATH.ball, 0.78);
+    this.playNamed("rail");
+  }
+
+  playNamed(name: AudioCueName): void {
+    if (!this.unlocked || this.settings.sfxMuted) return;
+    if (name === "hit") {
+      if (!this.playSyntheticPutt()) {
+        void this.playOneShot(PATH.hit, 0.26 * this.settings.sfxVolume, 0.92);
+      }
+      return;
+    }
+    if (name === "rail") {
+      if (!this.playSyntheticRail()) {
+        void this.playOneShot(PATH.ball, 0.22 * this.settings.sfxVolume, 0.82);
+      }
+      return;
+    }
+    const cfg: Record<AudioCueName, { src: string; volume: number; rate: number }> = {
+      hit: { src: PATH.hit, volume: 0.34, rate: 0.92 },
+      rail: { src: PATH.ball, volume: 0.28, rate: 0.86 },
+      hazard: { src: PATH.ball, volume: 0.9, rate: 0.82 },
+      oob: { src: PATH.ball, volume: 0.62, rate: 0.62 },
+      hole: { src: PATH.bell, volume: 0.92, rate: 1 },
+      coin: { src: PATH.bell, volume: 0.46, rate: 1.38 },
+      ui: { src: PATH.ball, volume: 0.34, rate: 1.72 },
+      reward: { src: PATH.bell, volume: 0.84, rate: 1.18 },
+      skip: { src: PATH.ball, volume: 0.58, rate: 0.72 },
+      level: { src: PATH.bell, volume: 0.52, rate: 0.92 },
+    };
+    const pick = cfg[name];
+    void this.playOneShot(pick.src, pick.volume * this.settings.sfxVolume, pick.rate);
+  }
+
+  setSettings(next: Partial<AudioSettings>): void {
+    this.settings = {
+      ...this.settings,
+      ...next,
+      musicVolume: Math.max(0, Math.min(1, next.musicVolume ?? this.settings.musicVolume)),
+      sfxVolume: Math.max(0, Math.min(1, next.sfxVolume ?? this.settings.sfxVolume)),
+    };
+    if (this.gameplay) {
+      this.gameplay.volume = this.settings.musicMuted ? 0 : this.settings.musicVolume;
+    }
+    if (this.ambient) {
+      this.ambient.volume = this.settings.musicMuted ? 0 : this.settings.musicVolume * 0.22;
+    }
+    this.saveSettings();
+  }
+
+  getSettings(): AudioSettings {
+    return { ...this.settings };
   }
 
   /**
@@ -64,6 +145,8 @@ export class GameAudio {
       phase === RunPhase.BallInFlight
     ) {
       this.ensureGameplayLoop(levelIndex);
+      this.ensureAmbientLoop();
+      this.setMusicIntensity(phase === RunPhase.BallInFlight ? 1 : 0.45);
     }
   }
 
@@ -73,15 +156,80 @@ export class GameAudio {
   startEarlyLevelBgm(levelIndex: number): void {
     if (!this.unlocked) return;
     this.ensureGameplayLoop(levelIndex);
+    this.ensureAmbientLoop();
   }
 
   dispose(): void {
     this.stopGameplayLoop();
+    this.stopAmbientLoop();
+    this.audioCtx?.close().catch(() => {});
+    this.audioCtx = null;
   }
 
-  private playOneShot(src: string, volume: number): Promise<void> {
+  private ensureAudioContext(): AudioContext | null {
+    if (this.audioCtx) return this.audioCtx;
+    const Ctor =
+      window.AudioContext ??
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!Ctor) return null;
+    this.audioCtx = new Ctor();
+    return this.audioCtx;
+  }
+
+  private playSyntheticPutt(): boolean {
+    const ctx = this.ensureAudioContext();
+    if (!ctx) return false;
+    void ctx.resume().catch(() => {});
+    const t = ctx.currentTime;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.16 * this.settings.sfxVolume, t + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(145, t);
+    osc.frequency.exponentialRampToValueAtTime(82, t + 0.13);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(520, t);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.17);
+    return true;
+  }
+
+  private playSyntheticRail(): boolean {
+    const ctx = this.ensureAudioContext();
+    if (!ctx) return false;
+    void ctx.resume().catch(() => {});
+    const t = ctx.currentTime;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.11 * this.settings.sfxVolume, t + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(340, t);
+    osc.frequency.exponentialRampToValueAtTime(210, t + 0.1);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(380, t);
+    filter.Q.setValueAtTime(0.9, t);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.12);
+    return true;
+  }
+
+  private playOneShot(src: string, volume: number, playbackRate = 1): Promise<void> {
     const a = new Audio(src);
-    a.volume = volume;
+    a.volume = this.settings.sfxMuted ? 0 : volume;
+    a.playbackRate = playbackRate;
     return a.play().catch(() => {});
   }
 
@@ -98,9 +246,27 @@ export class GameAudio {
     this.gameplayKey = key;
     const a = new Audio(key);
     a.loop = true;
-    a.volume = 0.36;
+    a.volume = this.settings.musicMuted ? 0 : this.settings.musicVolume;
     this.gameplay = a;
     void a.play().catch(() => {});
+  }
+
+  private ensureAmbientLoop(): void {
+    if (this.ambient && !this.ambient.paused) return;
+    const a = new Audio(PATH.bg1);
+    a.loop = true;
+    a.volume = this.settings.musicMuted ? 0 : this.settings.musicVolume * 0.18;
+    a.playbackRate = 0.72;
+    this.ambient = a;
+    void a.play().catch(() => {});
+  }
+
+  private setMusicIntensity(intensity: number): void {
+    if (!this.gameplay) return;
+    const target = this.settings.musicMuted
+      ? 0
+      : this.settings.musicVolume * (0.72 + Math.max(0, Math.min(1, intensity)) * 0.28);
+    this.gameplay.volume += (target - this.gameplay.volume) * 0.08;
   }
 
   private stopGameplayLoop(): void {
@@ -110,5 +276,31 @@ export class GameAudio {
     this.gameplay.src = "";
     this.gameplay = null;
     this.gameplayKey = null;
+  }
+
+  private stopAmbientLoop(): void {
+    if (!this.ambient) return;
+    this.ambient.pause();
+    this.ambient.currentTime = 0;
+    this.ambient.src = "";
+    this.ambient = null;
+  }
+
+  private loadSettings(): void {
+    try {
+      const raw = localStorage.getItem(LS_AUDIO);
+      if (!raw) return;
+      this.settings = { ...this.settings, ...JSON.parse(raw) };
+    } catch {
+      /* ignore corrupt settings */
+    }
+  }
+
+  private saveSettings(): void {
+    try {
+      localStorage.setItem(LS_AUDIO, JSON.stringify(this.settings));
+    } catch {
+      /* ignore full storage */
+    }
   }
 }

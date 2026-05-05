@@ -32,6 +32,10 @@ body {
   visibility: hidden;
 }
 
+.app--pre-game .game-overlays {
+  visibility: hidden;
+}
+
 #game {
   display: block;
   width: 100%;
@@ -40,7 +44,235 @@ body {
 }
 
 #game.canvas-hit-flash {
-  filter: brightness(1.14) saturate(1.08);
+  filter: brightness(1.32) saturate(1.26) contrast(1.08);
+}
+
+.game-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9000;
+}
+
+.overlay-pause-button {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+  pointer-events: auto;
+  border: 2px solid #ffe08a;
+  border-radius: 999px;
+  padding: 8px 13px;
+  color: #fff8da;
+  background: rgba(17, 34, 62, 0.82);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28);
+}
+
+.overlay-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(120, 212, 255, 0.18), transparent 45%),
+    rgba(4, 12, 20, 0.24);
+  transition:
+    opacity 0.2s ease,
+    visibility 0.2s ease,
+    transform 0.2s ease;
+}
+
+.overlay-panel--hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.99);
+}
+
+.overlay-card {
+  width: min(92vw, 440px);
+  padding: 22px 22px 20px;
+  border: 3px solid #ffe08a;
+  border-radius: 24px;
+  color: #fff;
+  text-align: center;
+  background:
+    linear-gradient(180deg, rgba(22, 52, 92, 0.94), rgba(9, 25, 42, 0.95)),
+    radial-gradient(circle at top left, rgba(114, 255, 154, 0.18), transparent 45%);
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.overlay-card--small {
+  width: min(86vw, 330px);
+}
+
+.overlay-card h2 {
+  margin: 4px 0 8px;
+  font-size: clamp(24px, 7vw, 34px);
+  line-height: 1;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+
+.overlay-card button {
+  pointer-events: auto;
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  border: none;
+  border-radius: 16px;
+  padding: 13px 16px;
+  color: #123013;
+  background: linear-gradient(180deg, #fff0a8, #f1b83a);
+  font-weight: 950;
+  box-shadow: 0 4px 0 rgba(86, 54, 12, 0.75);
+}
+
+.overlay-muted {
+  margin: 6px 0 0;
+  color: rgba(240, 250, 255, 0.82);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.overlay-eyebrow {
+  display: inline-block;
+  color: #b8ff9a;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.overlay-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 850;
+}
+
+.route-card {
+  transform: translateY(-8vh);
+}
+
+.tutorial-panel {
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 16px calc(76px + env(safe-area-inset-bottom));
+  pointer-events: none;
+  background: transparent;
+}
+
+.tutorial-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(84vw, 360px);
+  padding: 10px 14px;
+  border: 2px solid rgba(255, 224, 138, 0.9);
+  border-radius: 999px;
+  color: #fff8da;
+  background: rgba(9, 25, 42, 0.86);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+.tutorial-card span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #123013;
+  background: #ffe08a;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.tutorial-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.route-line {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 7px;
+  margin: 16px 0;
+}
+
+.route-node {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  color: #dff8ff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.route-node--done {
+  background: #55d886;
+  color: #082515;
+}
+
+.route-node--current {
+  background: #ffe08a;
+  color: #35230a;
+  box-shadow: 0 0 18px rgba(255, 224, 138, 0.75);
+}
+
+.route-node--milestone {
+  border-color: #ff89b5;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+  margin: 16px 0;
+  text-align: left;
+}
+
+.summary-grid span {
+  color: rgba(240, 250, 255, 0.78);
+  font-weight: 800;
+}
+
+.summary-grid strong {
+  color: #ffe08a;
+  font-size: 20px;
+}
+
+.overlay-reward {
+  margin: 10px 0;
+  color: #b8ff9a;
+  font-weight: 950;
+}
+
+.loading-rune {
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 12px;
+  border: 5px solid rgba(255, 224, 138, 0.28);
+  border-top-color: #ffe08a;
+  border-radius: 50%;
+  animation: loading-rune-spin 0.9s linear infinite;
+}
+
+@keyframes loading-rune-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ——— Title screen (before first frame / tap to start) ——— */

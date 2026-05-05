@@ -71,6 +71,55 @@ function parallelPair(tile: PlacedTile, out: RailCapsule[]): void {
   pushSeg(out, tile, xOff, -hz, xOff, hz);
 }
 
+function explicitRailSides(tile: PlacedTile, out: RailCapsule[]): boolean {
+  if (tile.railSides === undefined) return false;
+  const xOff = railSideOffset();
+  const zOff = railSideOffset();
+  const h = TILE_SIZE * 0.5;
+  for (const side of tile.railSides) {
+    switch (side) {
+      case "left":
+        pushSeg(out, tile, -xOff, -h, -xOff, h);
+        break;
+      case "right":
+        pushSeg(out, tile, xOff, -h, xOff, h);
+        break;
+      case "front":
+        pushSeg(out, tile, -h, zOff, h, zOff);
+        break;
+      case "back":
+        pushSeg(out, tile, -h, -zOff, h, -zOff);
+        break;
+    }
+  }
+  return true;
+}
+
+function explicitWorldRailSides(tile: PlacedTile, out: RailCapsule[]): boolean {
+  if (tile.railWorldSides === undefined) return false;
+  const h = TILE_SIZE * 0.5;
+  const side = railSideOffset();
+  const y = tile.worldY ?? 0;
+  for (const raw of tile.railWorldSides) {
+    const nx = Math.sign(raw.x);
+    const nz = Math.sign(raw.z);
+    if (nx === 0 && nz === 0) continue;
+    const tx = -nz;
+    const tz = nx;
+    const cx = tile.worldX + nx * side;
+    const cz = tile.worldZ + nz * side;
+    out.push({
+      ax: cx - tx * h,
+      az: cz - tz * h,
+      bx: cx + tx * h,
+      bz: cz + tz * h,
+      yMin: y - 0.35,
+      yMax: y + 1.8,
+    });
+  }
+  return true;
+}
+
 function cornerRails(tile: PlacedTile, out: RailCapsule[]): void {
   const { sx, sz } = tile.railS ?? { sx: -1, sz: -1 };
   const side = railSideOffset();
@@ -112,9 +161,89 @@ function curveRails(tile: PlacedTile, out: RailCapsule[]): void {
 /**
  * Centerlines of wood rails in world xz — must stay in sync with {@link ./tiles/TileKit} placement.
  */
+function roundKey(n: number): string {
+  return (Math.round(n * 100) / 100).toFixed(2);
+}
+
+function mergedRail(
+  item: { rail: RailCapsule; a: number; b: number },
+): RailCapsule {
+  const dx = item.rail.bx - item.rail.ax;
+  const dz = item.rail.bz - item.rail.az;
+  const len = Math.hypot(dx, dz);
+  let ux = dx / len;
+  let uz = dz / len;
+  if (ux < -0.001 || (Math.abs(ux) < 0.001 && uz < -0.001)) {
+    ux *= -1;
+    uz *= -1;
+  }
+  const nx = -uz;
+  const nz = ux;
+  const line = item.rail.ax * nx + item.rail.az * nz;
+  return {
+    ax: ux * item.a + nx * line,
+    az: uz * item.a + nz * line,
+    bx: ux * item.b + nx * line,
+    bz: uz * item.b + nz * line,
+    yMin: item.rail.yMin,
+    yMax: item.rail.yMax,
+  };
+}
+
+function mergeCollinearRails(rails: RailCapsule[]): RailCapsule[] {
+  const groups = new Map<string, Array<{ rail: RailCapsule; a: number; b: number }>>();
+  for (const rail of rails) {
+    const dx = rail.bx - rail.ax;
+    const dz = rail.bz - rail.az;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.001) continue;
+    let ux = dx / len;
+    let uz = dz / len;
+    if (ux < -0.001 || (Math.abs(ux) < 0.001 && uz < -0.001)) {
+      ux *= -1;
+      uz *= -1;
+    }
+    const nx = -uz;
+    const nz = ux;
+    const line = rail.ax * nx + rail.az * nz;
+    const pa = rail.ax * ux + rail.az * uz;
+    const pb = rail.bx * ux + rail.bz * uz;
+    const key = [
+      roundKey(ux),
+      roundKey(uz),
+      roundKey(line),
+      roundKey(rail.yMin ?? -999),
+      roundKey(rail.yMax ?? 999),
+    ].join("|");
+    const bucket = groups.get(key) ?? [];
+    bucket.push({ rail, a: Math.min(pa, pb), b: Math.max(pa, pb) });
+    groups.set(key, bucket);
+  }
+
+  const out: RailCapsule[] = [];
+  for (const bucket of groups.values()) {
+    bucket.sort((p, q) => p.a - q.a);
+    let cur = bucket[0];
+    if (!cur) continue;
+    for (let i = 1; i < bucket.length; i++) {
+      const next = bucket[i]!;
+      if (next.a <= cur.b + 0.03) {
+        cur.b = Math.max(cur.b, next.b);
+      } else {
+        out.push(mergedRail(cur));
+        cur = next;
+      }
+    }
+    out.push(mergedRail(cur));
+  }
+  return out;
+}
+
 export function buildRailColliders(tiles: readonly PlacedTile[]): RailCapsule[] {
   const out: RailCapsule[] = [];
   for (const tile of tiles) {
+    if (explicitWorldRailSides(tile, out)) continue;
+    if (explicitRailSides(tile, out)) continue;
     switch (tile.type) {
       case "straight":
       case "start":
@@ -133,5 +262,5 @@ export function buildRailColliders(tiles: readonly PlacedTile[]): RailCapsule[] 
         break;
     }
   }
-  return out;
+  return mergeCollinearRails(out);
 }

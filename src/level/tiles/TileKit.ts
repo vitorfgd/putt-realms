@@ -4,9 +4,9 @@ import {
   type AssetKey,
 } from "../../art/AssetRegistry";
 import {
-  goldCoin,
   holeCupPortalSurfaceMaterial,
   holeFlagRed,
+  boostPadArrowBlue,
   warmCreamStone,
   woodBrown,
 } from "../../art/Materials";
@@ -105,7 +105,6 @@ function tryAttachTileModel(parent: THREE.Object3D, tile: PlacedTile): boolean {
       }
       if (key === "tile_floor_plain") {
         makeModelDoubleSided(node);
-        deckGrassSquare(parent);
       }
       parent.add(node);
       return true;
@@ -162,12 +161,64 @@ export function buildTileGroup(tile: PlacedTile): THREE.Group {
         buildHoleLocal(root, tile);
         break;
     }
-  } else if (tile.type === "hole") {
-    appendProminentHoleFlag(root);
   }
 
+  if (tile.isRamp) {
+    addRampReadabilityOverlay(root);
+  }
   addSparseDecor(root, tile);
   return root;
+}
+
+function addRampReadabilityOverlay(parent: THREE.Object3D): void {
+  const arrowMat = boostPadArrowBlue().clone();
+  arrowMat.color.setHex(0xfff2a8);
+  arrowMat.transparent = true;
+  arrowMat.opacity = 0.9;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0.74);
+  shape.lineTo(0.72, -0.16);
+  shape.lineTo(0.28, -0.16);
+  shape.lineTo(0.28, -0.74);
+  shape.lineTo(-0.28, -0.74);
+  shape.lineTo(-0.28, -0.16);
+  shape.lineTo(-0.72, -0.16);
+  shape.lineTo(0, 0.74);
+  const arrowGeo = new THREE.ShapeGeometry(shape);
+  for (let i = 0; i < 2; i++) {
+    const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+    arrow.rotation.x = -Math.PI / 2;
+    arrow.position.set(0, 0.04 + i * 0.004, -0.78 + i * 1.35);
+    arrow.scale.setScalar(0.88);
+    arrow.renderOrder = 4;
+    parent.add(arrow);
+  }
+
+  const trimMat = new THREE.MeshBasicMaterial({
+    color: 0xfff0a8,
+    transparent: true,
+    opacity: 0.88,
+    toneMapped: false,
+  });
+  const shadowMat = new THREE.MeshBasicMaterial({
+    color: 0x173e24,
+    transparent: true,
+    opacity: 0.2,
+    toneMapped: false,
+  });
+  const trimGeo = new THREE.BoxGeometry(0.07, 0.035, TILE_SIZE * 0.92);
+  const left = new THREE.Mesh(trimGeo, trimMat);
+  left.position.set(-LANE_WIDTH * 0.32, 0.058, 0);
+  const right = left.clone();
+  right.position.x *= -1;
+  const slopeShade = new THREE.Mesh(
+    new THREE.PlaneGeometry(LANE_WIDTH * 0.58, TILE_SIZE * 0.86),
+    shadowMat,
+  );
+  slopeShade.rotation.x = -Math.PI / 2;
+  slopeShade.position.set(0, 0.03, -0.18);
+  slopeShade.renderOrder = 2;
+  parent.add(slopeShade, left, right);
 }
 
 function islandUnderside(parent: THREE.Object3D, tile: PlacedTile): void {
@@ -215,29 +266,6 @@ function deckGrassSquare(parent: THREE.Object3D): void {
   parent.add(deck);
 }
 
-function deckGrassSquareBacking(parent: THREE.Object3D): void {
-  const deck = new THREE.Mesh(
-    new THREE.BoxGeometry(TILE_SIZE, 0.04, TILE_SIZE),
-    grassMaterial(),
-  );
-  deck.position.y = -0.08;
-  deck.renderOrder = -1;
-  parent.add(deck);
-}
-
-function attachFloorPlainModel(parent: THREE.Object3D): void {
-  const node = assetRegistry.getModelClone("tile_floor_plain");
-  if (!node) return;
-  scaleProcgenModelToWorldUnits(
-    node,
-    procgenModelExtentForAssetKey("tile_floor_plain"),
-    true,
-  );
-  centerModelOnDeckOrigin(node, 0);
-  makeModelDoubleSided(node);
-  parent.add(node);
-}
-
 function deckGrassAlongX(parent: THREE.Object3D): void {
   const deck = new THREE.Mesh(
     new THREE.BoxGeometry(TILE_SIZE, 0.14, LANE_WIDTH * 0.97),
@@ -262,15 +290,63 @@ function parallelRails(
   parent.add(left, right);
 }
 
+function localSideForWorldNormal(
+  tile: PlacedTile,
+  side: { x: number; z: number },
+): "left" | "right" | "front" | "back" | null {
+  const c = Math.round(Math.cos(tile.rotationY));
+  const s = Math.round(Math.sin(tile.rotationY));
+  const dirs = {
+    right: { x: c, z: -s },
+    left: { x: -c, z: s },
+    front: { x: s, z: c },
+    back: { x: -s, z: -c },
+  } as const;
+  for (const [name, dir] of Object.entries(dirs)) {
+    if (dir.x === Math.sign(side.x) && dir.z === Math.sign(side.z)) {
+      return name as "left" | "right" | "front" | "back";
+    }
+  }
+  return null;
+}
+
+function explicitRails(parent: THREE.Object3D, tile: PlacedTile): boolean {
+  const sides = tile.railWorldSides;
+  if (!sides) return false;
+  const mat = creamRailMaterial();
+  const side = railSideOffset();
+  const y = RAIL_HEIGHT * 0.35 - 0.07;
+  for (const worldSide of sides) {
+    const local = localSideForWorldNormal(tile, worldSide);
+    if (local === "left" || local === "right") {
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(RAIL_THICKNESS, RAIL_HEIGHT, TILE_SIZE),
+        mat,
+      );
+      rail.position.set(local === "right" ? side : -side, y, 0);
+      parent.add(rail);
+    } else if (local === "front" || local === "back") {
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(TILE_SIZE, RAIL_HEIGHT, RAIL_THICKNESS),
+        mat,
+      );
+      rail.position.set(0, y, local === "front" ? side : -side);
+      parent.add(rail);
+    }
+  }
+  return true;
+}
+
 function buildStraightLocal(parent: THREE.Object3D, tile: PlacedTile): void {
   deckGrass(parent);
-  parallelRails(parent, TILE_SIZE, creamRailMaterial());
+  if (!explicitRails(parent, tile)) {
+    parallelRails(parent, TILE_SIZE, creamRailMaterial());
+  }
   islandUnderside(parent, tile);
 }
 
 function buildFloorLocal(parent: THREE.Object3D, tile: PlacedTile): void {
-  deckGrassSquareBacking(parent);
-  attachFloorPlainModel(parent);
+  deckGrassSquare(parent);
   islandUnderside(parent, tile);
 }
 
@@ -420,47 +496,14 @@ function addProceduralHoleFlagFallback(parent: THREE.Object3D): void {
 }
 
 /** GLB hole tiles skip procedural geometry — animated flag or fallback pole + cloth */
-function appendProminentHoleFlag(parent: THREE.Object3D): void {
+export function appendHoleFlagVisual(parent: THREE.Object3D): void {
   if (!attachAnimatedHoleFlag(parent)) {
     addProceduralHoleFlagFallback(parent);
   }
 }
 
-function addFantasyCoinsAroundCup(parent: THREE.Object3D): void {
-  const mat = goldCoin();
-  const n = 6;
-  const ringR = holeCupRadius() * 2.35;
-  for (let i = 0; i < n; i++) {
-    const ang = (i / n) * Math.PI * 2 + 0.15;
-    const coinModel = assetRegistry.getModelClone("coin");
-    const coin: THREE.Object3D =
-      coinModel ??
-      (() => {
-        const m = new THREE.Mesh(
-          createLowPolyCylinder(0.13, 0.13, 0.045, 10),
-          mat,
-        );
-        m.rotation.x = Math.PI / 2;
-        m.rotation.z = ang + Math.PI * 0.5;
-        return m;
-      })();
-    if (coinModel) {
-      coin.rotation.y = ang + Math.PI * 0.5;
-    }
-    coin.position.set(Math.cos(ang) * ringR, 0.055, Math.sin(ang) * ringR);
-    parent.add(coin);
-  }
-}
-
-function buildHoleLocal(parent: THREE.Object3D, tile: PlacedTile): void {
-  deckGrass(parent);
-
-  const railMat = creamRailMaterial();
-  parallelRails(parent, TILE_SIZE, railMat);
-
+export function appendHolePortalVisuals(parent: THREE.Object3D): void {
   const cupR = holeCupRadius();
-
-  /** Grass deck top is y=0 — portal must sit slightly above or it renders inside the deck and disappears */
   const rim = new THREE.Mesh(
     new THREE.RingGeometry(cupR * 0.76, cupR * 1.12, 28),
     cupDarkMaterial(),
@@ -471,18 +514,33 @@ function buildHoleLocal(parent: THREE.Object3D, tile: PlacedTile): void {
 
   const cup = new THREE.Mesh(
     new THREE.CircleGeometry(cupR * 0.74, 32),
-    holeCupPortalSurfaceMaterial(),
+    cupDarkMaterial(),
   );
   cup.rotation.x = -Math.PI / 2;
   cup.position.y = 0.004;
-  cup.renderOrder = 3;
-  cup.name = "HolePortalSurface";
+  cup.renderOrder = 2;
+  cup.name = "HoleCupSurface";
   parent.add(cup);
 
-  if (!attachAnimatedHoleFlag(parent)) {
-    addProceduralHoleFlagFallback(parent);
-  }
+  const portal = new THREE.Mesh(
+    new THREE.CircleGeometry(cupR * 1.02, 32),
+    holeCupPortalSurfaceMaterial(),
+  );
+  portal.rotation.x = -Math.PI / 2;
+  portal.position.y = 0.009;
+  portal.renderOrder = 4;
+  portal.name = "HolePortalSurface";
+  parent.add(portal);
+}
 
-  addFantasyCoinsAroundCup(parent);
+function buildHoleLocal(parent: THREE.Object3D, tile: PlacedTile): void {
+  deckGrass(parent);
+
+  const railMat = creamRailMaterial();
+  parallelRails(parent, TILE_SIZE, railMat);
+
+  appendHolePortalVisuals(parent);
+
+  appendHoleFlagVisual(parent);
   islandUnderside(parent, tile);
 }

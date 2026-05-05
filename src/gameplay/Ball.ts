@@ -47,7 +47,9 @@ export class Ball extends THREE.Group {
     const geo = new THREE.SphereGeometry(Ball.RADIUS, 48, 40);
     const mesh = new THREE.Mesh(geo, createDefaultBallMaterial().clone());
     mesh.position.y = Ball.RADIUS;
-    mesh.castShadow = true;
+    // The soft contact blob handles ball grounding/elevation readability.
+    // Keeping the real shadow too creates a distracting double-shadow.
+    mesh.castShadow = false;
     mesh.receiveShadow = false;
     this.visualRoot.add(mesh);
     this.primaryMesh = mesh;

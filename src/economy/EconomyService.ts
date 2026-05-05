@@ -26,6 +26,20 @@ export class EconomyService {
     return this.holeInOneStreak;
   }
 
+  addCoins(amount: number): void {
+    const n = Math.max(0, Math.floor(amount));
+    if (n <= 0) return;
+    this.coins += n;
+    this.save();
+  }
+
+  removeCoins(amount: number): void {
+    const n = Math.max(0, Math.floor(amount));
+    if (n <= 0) return;
+    this.coins = Math.max(0, this.coins - n);
+    this.save();
+  }
+
   /**
    * Award for sinking this hole in one stroke. Updates streak (+1) and balance.
    * @returns coins granted this event

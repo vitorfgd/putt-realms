@@ -12,6 +12,45 @@ export interface HazardSpawnSpec {
   fanSign?: 1 | -1;
 }
 
+export interface CollectibleSpec {
+  id: string;
+  tileIndex: number;
+  stationIndex?: number;
+  x: number;
+  y: number;
+  z: number;
+  value: number;
+  collected?: boolean;
+}
+
+export interface ProgressionSummary {
+  level: number;
+  realmId: string;
+  realmName: string;
+  maxLevel: number;
+  milestoneLevels: number[];
+}
+
+export interface HoleTelemetry {
+  id: string;
+  levelIndex: number;
+  seed?: string;
+  progressionLevel?: number;
+  difficultyScore: number;
+  tileCount: number;
+  rampCount: number;
+  turnCount: number;
+  strokes: number;
+  par: number;
+  oobCount: number;
+  restarts: number;
+  skips: number;
+  hazardHits: number;
+  coinPickups: number;
+  result: "completed" | "skipped" | "restarted" | "failed";
+  createdAt: number;
+}
+
 /** Cardinal directions on the logical grid (+Z forward default). */
 export enum GridDir {
   N = 0,
@@ -45,6 +84,13 @@ export interface PlacedTile {
   hazardSafe?: boolean;
   /** Corner / curve: outer rail offset signs in tile-local space (see bendOuterRails). */
   railS?: { sx: 1 | -1; sz: 1 | -1 };
+  /**
+   * Explicit local wall sides for procgen FBX tiles. When omitted, legacy procedural
+   * tiles keep their historical collider defaults.
+   */
+  railSides?: Array<"left" | "right" | "front" | "back">;
+  /** Procgen-only world-space exposed edge normals for rail collision. */
+  railWorldSides?: Array<{ x: number; z: number }>;
   /**
    * When set (procgen levels), {@link buildTileGroup} loads this registry asset first
    * so distinct meshes (straight vs ramp, convex vs concave) are preserved.
@@ -109,6 +155,12 @@ export interface GeneratedLevel {
   procgenDebugInfo?: Record<string, unknown>;
   procgenSeed?: string;
   progressionLevel?: number;
+  par: number;
+  realmId: string;
+  progressionSummary?: ProgressionSummary;
+  dailyChallengeId?: string;
+  weeklyChallengeId?: string;
+  collectibles: CollectibleSpec[];
   /** Procedural cream rails: ball collides, cannot pass through. */
   railColliders: RailCapsule[];
 }

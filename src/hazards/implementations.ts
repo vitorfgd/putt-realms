@@ -93,27 +93,11 @@ function hideWindmillGreyStaticParts(root: THREE.Object3D, armSpin: THREE.Object
   });
 }
 
-function reflectVelocityAcrossNormal(
-  vx: number,
-  vz: number,
-  nx: number,
-  nz: number,
-  restitution: number,
-): { x: number; z: number } {
-  const len = Math.hypot(nx, nz) || 1;
-  const nnx = nx / len;
-  const nnz = nz / len;
-  const dot = vx * nnx + vz * nnz;
-  return {
-    x: vx - 2 * dot * nnx * restitution,
-    z: vz - 2 * dot * nnz * restitution,
-  };
-}
-
 abstract class BaseHazard implements HazardInstance {
   abstract readonly hazardType: string;
   readonly group = new THREE.Group();
   readonly tileId: string;
+  private hitCooldown = 0;
 
   constructor(
     readonly id: string,
@@ -124,7 +108,7 @@ abstract class BaseHazard implements HazardInstance {
   }
 
   update(_dt: number): void {
-    void _dt;
+    this.hitCooldown = Math.max(0, this.hitCooldown - _dt);
   }
 
   accumulateEnvironment(
@@ -158,6 +142,14 @@ abstract class BaseHazard implements HazardInstance {
         else (mat as THREE.Material)?.dispose();
       }
     });
+  }
+
+  protected canRegisterHit(): boolean {
+    return this.hitCooldown <= 0;
+  }
+
+  protected markHit(cooldownSeconds = 0.34): void {
+    this.hitCooldown = cooldownSeconds;
   }
 }
 
@@ -248,6 +240,7 @@ class WindmillHazard extends BaseHazard {
   }
 
   update(dt: number): void {
+    super.update(dt);
     this.angle += this.spin * dt;
     /** Monotonic Y — same spin sense forever (no sin back-and-forth) */
     this.armSpin.rotation.y = this.angle;
@@ -281,6 +274,7 @@ class WindmillHazard extends BaseHazard {
     const dist = Math.hypot(dx, dz);
     const hitR = ctx.radius + this.hitExtra;
     if (dist > hitR) return false;
+    if (!this.canRegisterHit()) return false;
 
     /** Segment direction */
     const sx = bx - ax;
@@ -303,15 +297,17 @@ class WindmillHazard extends BaseHazard {
       ctx.position.z += nz * pen;
     }
 
-    const v = reflectVelocityAcrossNormal(
-      physics.velocity.x,
-      physics.velocity.z,
-      nx,
-      nz,
-      0.92,
-    );
-    physics.velocity.x = v.x;
-    physics.velocity.z = v.z;
+    const planarSpeed = Math.hypot(physics.velocity.x, physics.velocity.z);
+    const vn = physics.velocity.x * nx + physics.velocity.z * nz;
+    const targetOut = Math.max(12, planarSpeed * 0.82 + 5);
+    physics.velocity.x += (targetOut - vn) * nx;
+    physics.velocity.z += (targetOut - vn) * nz;
+    const tangentX = sx / sl;
+    const tangentZ = sz / sl;
+    const spinKick = 3.2;
+    physics.velocity.x += tangentX * spinKick;
+    physics.velocity.z += tangentZ * spinKick;
+    this.markHit();
     return true;
   }
 }
@@ -732,6 +728,7 @@ class AxeHazard extends BaseHazard {
   }
 
   update(dt: number): void {
+    super.update(dt);
     this.phase += dt * this.spin;
     this.bladeAnim.rotation.y = this.phase;
   }
@@ -753,16 +750,18 @@ class AxeHazard extends BaseHazard {
     const dz = ctx.position.z - bz;
     const dist = Math.hypot(dx, dz);
     if (dist > ctx.radius + 0.68) return false;
+    if (!this.canRegisterHit()) return false;
 
     /** Bounce backward along -forward */
     const backX = -this.fx;
     const backZ = -this.fz;
-    const speed = 9;
+    const speed = 15;
     physics.velocity.x = backX * speed;
     physics.velocity.z = backZ * speed;
 
     ctx.position.x += backX * ctx.radius * 0.35;
     ctx.position.z += backZ * ctx.radius * 0.35;
+    this.markHit(0.42);
     return true;
   }
 }

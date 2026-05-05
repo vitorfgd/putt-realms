@@ -125,12 +125,31 @@ export class SimpleBallPhysics {
     deltaSeconds: number,
     env?: PhysicsStepEnvironment,
   ): PhysicsStepResult {
+    this.surfaceContact = false;
+    const planarSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    const maxStepTravel = Math.max(0.22, this.radius * 0.58);
+    const substeps = Math.min(
+      12,
+      Math.max(1, Math.ceil((planarSpeed * deltaSeconds) / maxStepTravel)),
+    );
+    let result: PhysicsStepResult = {};
+    for (let i = 0; i < substeps; i++) {
+      result = this.stepOnce(position, deltaSeconds / substeps, env);
+      if (result.oob || this.settled) return result;
+    }
+    return result;
+  }
+
+  private stepOnce(
+    position: THREE.Vector3,
+    deltaSeconds: number,
+    env?: PhysicsStepEnvironment,
+  ): PhysicsStepResult {
     if (this.settled) {
       this.surfaceContact = false;
       return {};
     }
 
-    this.surfaceContact = false;
     const dt = deltaSeconds;
     this.velocity.y -= GRAVITY * dt;
 
@@ -153,13 +172,14 @@ export class SimpleBallPhysics {
 
     let support = sampleCourseSurface(this.surface, position.x, position.z);
     let supportY = support?.y ?? null;
+    const railSupportY = supportY ?? (supportedBefore ? preSupport?.y ?? null : null);
 
     if (
-      supportY !== null &&
-      position.y <= supportY + 0.24 &&
+      railSupportY !== null &&
+      position.y <= railSupportY + 0.24 &&
       this.rails.length > 0
     ) {
-      this.resolveWoodRails(position, supportY);
+      this.resolveWoodRails(position, railSupportY);
       support = sampleCourseSurface(this.surface, position.x, position.z);
       supportY = support?.y ?? null;
     }

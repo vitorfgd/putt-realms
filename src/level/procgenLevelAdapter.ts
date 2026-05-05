@@ -39,35 +39,65 @@ function gridPathFromDebug(map: GeneratedMap): GridCell[] {
   return gp as GridCell[];
 }
 
+function keyCell(c: GridCell): string {
+  return `${c.x},${c.z}`;
+}
+
+function exposedSides(
+  cell: GridCell,
+  occupied: ReadonlySet<string>,
+): { x: number; z: number }[] {
+  const sides = [
+    { x: 1, z: 0 },
+    { x: 0, z: 1 },
+    { x: -1, z: 0 },
+    { x: 0, z: -1 },
+  ];
+  return sides.filter((s) => !occupied.has(`${cell.x + s.x},${cell.z + s.z}`));
+}
+
 function toGameplayTile(
   pt: ProcgenTile,
   prev: GridCell | undefined,
   cur: GridCell,
   next: GridCell | undefined,
+  exposed: readonly { x: number; z: number }[],
 ): GamePlacedTile {
   const def = getTileDefinition(pt.tileType);
   const deck = deckCenterWorldFromPivot(pt.position, pt.rotationY, def);
 
   let type: GamePlacedTile["type"];
   let railS: GamePlacedTile["railS"];
+  let railWorldSides: GamePlacedTile["railWorldSides"];
 
   switch (pt.tileType) {
     case "start_placeholder":
       type = "start";
+      railWorldSides = [...exposed];
       break;
     case "hole_placeholder":
       type = "hole";
+      railWorldSides = [...exposed];
       break;
     case "straight_right_wall":
+      type = "straight";
+      railWorldSides = [...exposed];
+      break;
     case "ramp_right_wall":
+      type = "straight";
+      railWorldSides = [...exposed];
+      break;
     case "ramp_left_wall":
       type = "straight";
+      railWorldSides = [...exposed];
       break;
     case "floor_plain":
       type = "floor";
+      railWorldSides = [];
       break;
     case "convex_right_wall":
       type = "corner";
+      railWorldSides = [...exposed];
       if (pt.railS !== undefined) {
         railS = pt.railS;
       } else if (prev !== undefined && next !== undefined) {
@@ -81,6 +111,7 @@ function toGameplayTile(
       break;
     case "concave_right_wall":
       type = "corner";
+      railWorldSides = [...exposed];
       if (pt.railS !== undefined) {
         railS = pt.railS;
       } else if (prev !== undefined && next !== undefined) {
@@ -116,9 +147,10 @@ function toGameplayTile(
       : type !== "straight"
         ? { hazardSafe: false }
         : {}),
-    ...(pt.tileType !== "floor_plain" && PROCGEN_TILE_TO_ASSET[pt.tileType]
+    ...(PROCGEN_TILE_TO_ASSET[pt.tileType]
       ? { assetKeyOverride: PROCGEN_TILE_TO_ASSET[pt.tileType] }
       : {}),
+    ...(railWorldSides !== undefined ? { railWorldSides } : {}),
   };
   if (railS !== undefined) {
     out.railS = railS;
@@ -183,9 +215,17 @@ export function adaptProcgenMapToGeneratedLevel(
   }
 
   const tiles: GamePlacedTile[] = [];
+  const occupied = new Set(path.map(keyCell));
   for (let i = 0; i < map.tiles.length; i++) {
+    const cur = path[i];
     tiles.push(
-      toGameplayTile(map.tiles[i], path[i - 1], path[i], path[i + 1]),
+      toGameplayTile(
+        map.tiles[i],
+        path[i - 1],
+        cur,
+        path[i + 1],
+        exposedSides(cur, occupied),
+      ),
     );
   }
 
@@ -227,6 +267,9 @@ export function adaptProcgenMapToGeneratedLevel(
     procgenDebugInfo: map.debugInfo,
     procgenSeed: map.seed,
     progressionLevel,
+    par: Math.max(2, Math.ceil((progressionLevel ?? opts.levelIndex) / 4) + 2),
+    realmId: "sky_meadow",
+    collectibles: [],
     railColliders: buildRailColliders(tiles),
   };
   validateAdaptedLevel(level);

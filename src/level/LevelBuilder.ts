@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import type { GeneratedLevel } from "./LevelTypes";
-import { buildTileGroup } from "./tiles/TileKit";
+import {
+  appendHoleFlagVisual,
+  appendHolePortalVisuals,
+  buildTileGroup,
+} from "./tiles/TileKit";
 
 export type { ProcgenAdaptOptions } from "./procgenLevelAdapter";
 export { adaptProcgenMapToGeneratedLevel } from "./procgenLevelAdapter";
@@ -26,6 +30,19 @@ export class LevelBuilder {
       const m = piece.userData.holeFlagMixer as THREE.AnimationMixer | undefined;
       if (m) mixers.push(m);
       course.add(piece);
+    }
+
+    if (level.tiles.some((tile) => tile.type === "hole" && tile.assetKeyOverride)) {
+      const holeMarker = new THREE.Group();
+      holeMarker.name = "GeneratedHolePortalMarker";
+      appendHolePortalVisuals(holeMarker);
+      appendHoleFlagVisual(holeMarker);
+      holeMarker.position.set(
+        level.holePosition.x,
+        level.holePosition.y,
+        level.holePosition.z,
+      );
+      course.add(holeMarker);
     }
 
     parent.add(course);

@@ -19,10 +19,10 @@ export const BALL_RADIUS = 0.34;
 
 /** Drag / shot — clamp keeps aim vector sane at screen edges */
 export const MIN_DRAG_WORLD = 0.35;
-export const MAX_DRAG_WORLD = 5.5;
+export const MAX_DRAG_WORLD = 5.0;
 /** Pull length (world units) that reaches 100% power — lower than clamp so typical sweeps can max out */
-export const POWER_FULL_DRAG_WORLD = 3.35;
-export const MAX_SHOT_SPEED = 96;
+export const POWER_FULL_DRAG_WORLD = 4.1;
+export const MAX_SHOT_SPEED = 74;
 
 /** Offer free skip after crawling at low speed away from the cup */
 export const STUCK_SKIP_PLANAR_SPEED = 0.11;
@@ -72,8 +72,8 @@ export const CAM_ORBIT_RAD_PER_PX = 0.0048;
 export const CAM_ORBIT_YAW_MAX = Math.PI * 1.15;
 
 /** Camera / flow timings (seconds) */
-export const PREVIEW_CAMERA_DURATION = 1.5;
-export const GAMEPLAY_CAMERA_BLEND_DURATION = 0.85;
+export const PREVIEW_CAMERA_DURATION = 1.05;
+export const GAMEPLAY_CAMERA_BLEND_DURATION = 0.72;
 export const HOLE_SINK_DURATION = 0.48;
 export const HOLE_CELEBRATION_DURATION = 0.42;
 export const POST_HOLE_LEVEL_DELAY = 0.8;

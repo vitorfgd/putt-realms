@@ -309,6 +309,9 @@ export class LevelGenerator {
       holePosition: { x: lwx.x, y: 0, z: lwx.z },
       bounds,
       surface: buildFlatCourseSurfaceFromTiles(tiles),
+      par: Math.max(2, Math.ceil(path.length / 5) + 1),
+      realmId: "legacy",
+      collectibles: [],
       railColliders: buildRailColliders(tiles),
     };
   }

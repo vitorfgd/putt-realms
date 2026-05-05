@@ -1,7 +1,6 @@
 import "./style.css";
 import { assetRegistry } from "./art/AssetRegistry";
 import { USE_PROCGEN_ENDPOINT } from "./core/Constants";
-import { preloadHolePortalTexture } from "./art/Materials";
 import { Game } from "./core/Game";
 import { PROCGEN_PRELOAD_KEYS } from "./procgen/procgenAssetKeys";
 
@@ -37,8 +36,7 @@ if (procgenDebug) {
         PROCGEN_PRELOAD_KEYS.map((k) => assetRegistry.preloadAsset(k)),
       );
     }
-    preloadHolePortalTexture();
-    game = new Game(gameCanvas, gameHud);
+    game = new Game(gameCanvas, gameHud, appRoot ?? document.body);
 
     let gameStarted = false;
     function dismissTitleScreen(): void {

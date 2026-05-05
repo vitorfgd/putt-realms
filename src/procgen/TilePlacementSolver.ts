@@ -454,7 +454,7 @@ function solveDoubleRowCurvedPath(
     let tileType: TileType;
     let rotationY: number;
 
-    if (role === "floor") {
+    if (role === "floor" && sides.length === 0) {
       tileType = "floor_plain";
       rotationY = baseRotation;
     } else if (isStart || isHole || role === "corner" || sides.length >= 2) {
