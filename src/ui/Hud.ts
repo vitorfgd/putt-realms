@@ -24,6 +24,7 @@ export class Hud {
   private readonly elSkipWrap: HTMLElement;
   private readonly elSkipBtn: HTMLButtonElement;
   private readonly elSkipCost: HTMLElement;
+  private readonly elSeed: HTMLElement;
 
   constructor(container: HTMLElement) {
     this.elLevelValue = requireEl(container, "hud-level-value");
@@ -40,6 +41,7 @@ export class Hud {
     this.elSkipWrap = requireEl(container, "hud-skip-wrap");
     this.elSkipBtn = requireEl(container, "hud-skip-btn") as HTMLButtonElement;
     this.elSkipCost = requireEl(container, "hud-skip-cost");
+    this.elSeed = requireEl(container, "hud-seed");
   }
 
   mount(): void {
@@ -52,6 +54,22 @@ export class Hud {
     this.setAimingChip(false);
     this.setSkipRow({ visible: false, label: "", enabled: false });
     this.hideToast();
+    this.setMapSeed(null);
+  }
+
+  /** Stable ID for procgen bug reports — full string in tooltip for long seeds. */
+  setMapSeed(seed: string | null): void {
+    if (seed == null || seed === "") {
+      this.elSeed.textContent = "";
+      this.elSeed.classList.add("hud-seed--hidden");
+      this.elSeed.removeAttribute("title");
+      return;
+    }
+    const display =
+      seed.length > 56 ? `${seed.slice(0, 53)}…` : seed;
+    this.elSeed.textContent = `Seed ${display}`;
+    this.elSeed.title = `${seed}\nReplay: add ?procgenSeed=${encodeURIComponent(seed)}`;
+    this.elSeed.classList.remove("hud-seed--hidden");
   }
 
   /** Skip appears after first stroke — paid/imperfect/stuck rules handled in Game */

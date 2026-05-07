@@ -366,7 +366,7 @@ body {
   border: 0;
 }
 
-/* ——— Portrait HUD (9:16 overlay; gameplay canvas letterboxed inside app) ——— */
+/* ——— Portrait HUD (9:18 overlay; gameplay canvas letterboxed inside app) ——— */
 
 .hud {
   position: absolute;
@@ -384,10 +384,10 @@ body {
   color: #fff;
 }
 
-/** Align HUD column with typical portrait 9:16 gameplay strip on wide viewports */
-@media (min-aspect-ratio: 10 / 16) {
+/** Align HUD column with typical portrait 9:18 gameplay strip on wide viewports */
+@media (min-aspect-ratio: 10 / 18) {
   #hud.hud {
-    width: min(100vw, calc(100vh * 9 / 16));
+    width: min(100vw, calc(100vh * 9 / 18));
     left: 50%;
     right: auto;
     transform: translateX(-50%);
@@ -477,7 +477,7 @@ body {
   border: none;
   border-radius: 0;
   box-shadow: none;
-  background-image: url(./ui/hud_strokes_badge.png);
+  background-image: url("/assets/ui/hud_strokes_badge.png");
   background-repeat: no-repeat;
   background-position: 50% 42%;
   background-size: 100% auto;
@@ -752,6 +752,25 @@ body {
   font-weight: 800;
   letter-spacing: 0.03em;
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+
+/* Procgen replay — must stay `pointer-events: none` so pulls reach the canvas (see Hud title for full seed). */
+.hud-seed {
+  pointer-events: none;
+  margin: 8px 0 0;
+  padding: 0 8px;
+  max-width: 100%;
+  text-align: center;
+  font-size: clamp(10px, 2.75vw, 12px);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  color: rgba(200, 220, 255, 0.78);
+}
+
+.hud-seed--hidden {
+  display: none;
 }
 
 .instruction-panel__power {

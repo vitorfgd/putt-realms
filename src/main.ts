@@ -2,6 +2,8 @@ import "./style.css";
 import { assetRegistry } from "./art/AssetRegistry";
 import { USE_PROCGEN_ENDPOINT } from "./core/Constants";
 import { Game } from "./core/Game";
+import { BACKGROUND_FLOATING_ISLAND_KEYS } from "./level/backgroundFloatingIslands";
+import { ISLAND_DECOR_ASSET_KEYS } from "./level/islandDecorScatter";
 import { PROCGEN_PRELOAD_KEYS } from "./procgen/procgenAssetKeys";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
@@ -31,6 +33,13 @@ if (procgenDebug) {
   async function bootstrap(): Promise<void> {
     assetRegistry.startBackgroundPreload();
     await assetRegistry.preloadAsset("hole_flag");
+    await assetRegistry.preloadAsset("undermap_island");
+    await Promise.all(
+      BACKGROUND_FLOATING_ISLAND_KEYS.map((k) => assetRegistry.preloadAsset(k)),
+    );
+    await Promise.all(
+      ISLAND_DECOR_ASSET_KEYS.map((k) => assetRegistry.preloadAsset(k)),
+    );
     if (USE_PROCGEN_ENDPOINT) {
       await Promise.all(
         PROCGEN_PRELOAD_KEYS.map((k) => assetRegistry.preloadAsset(k)),

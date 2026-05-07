@@ -145,7 +145,7 @@ export class GameOverlays {
     this.routePanel.classList.remove("overlay-panel--hidden");
     window.setTimeout(
       () => this.routePanel.classList.add("overlay-panel--hidden"),
-      1500,
+      2300,
     );
   }
 

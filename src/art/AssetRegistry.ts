@@ -49,6 +49,16 @@ export const ASSET_FILENAMES = {
   coin: "coin.glb",
   ball_default: "ball_default.glb",
   ball_gold: "ball_gold.glb",
+  /** Large flat-topped mass placed under the course for a grounded read */
+  undermap_island: "medium-floating-island.glb",
+  /** Distant vista — sparse placement (see `backgroundFloatingIslands.ts`) */
+  bg_floating_island_small: "small-floating-island.glb",
+  bg_floating_island: "floating-island.glb",
+  decor_fan_cluster: "fan-cluster.glb",
+  decor_fantasy_crystal_rock: "fantasy-crystal-rock.glb",
+  decor_fantasy_pine_tree: "fantasy-pine-tree.glb",
+  decor_small_flower: "small-decorative-flower.glb",
+  decor_small_mushroom: "small-fantasy-mushroom.glb",
   hole_flag: "flag.gltf",
 } as const;
 

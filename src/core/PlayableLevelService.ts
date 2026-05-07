@@ -10,7 +10,32 @@ import type {
 } from "../level/LevelTypes";
 import { LevelGenerator } from "../level/LevelGenerator";
 import { mapGenerationEndpoint } from "../procgen/MapGenerationEndpoint";
-import { USE_PROCGEN_ENDPOINT } from "./Constants";
+import {
+  readProcgenSeedUrlOverride,
+  USE_PROCGEN_ENDPOINT,
+} from "./Constants";
+
+const LAYOUT_SALT_GLOBAL = "__puttLayoutSalt_v1";
+
+type GlobalWithSalt = typeof globalThis & {
+  [LAYOUT_SALT_GLOBAL]?: string;
+};
+
+/**
+ * Stable for one page load → same level index replays restart/skip reliably;
+ * refresh (or ?procgenSeed=) yields a new layout when no override is used.
+ */
+function getOrCreateLayoutSalt(): string {
+  const g = globalThis as GlobalWithSalt;
+  const existing = g[LAYOUT_SALT_GLOBAL];
+  if (existing) return existing;
+  const salt =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `s${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  g[LAYOUT_SALT_GLOBAL] = salt;
+  return salt;
+}
 
 const PROCGEN_RETRY_COUNT = 4;
 const MAX_PROGRESSION_LEVEL = 20;
@@ -225,9 +250,14 @@ export class PlayableLevelService {
     previousDifficultyScore?: number,
   ): GeneratedLevel {
     const config = procgenGameplayConfig(levelIndex);
-    const baseSeed = `putt-${levelIndex}-v2`;
+    const urlSeed = readProcgenSeedUrlOverride();
+    const seedPrefix = urlSeed
+      ? urlSeed.trim()
+      : `putt-${levelIndex}-v2-${getOrCreateLayoutSalt()}`;
+
     for (let attempt = 0; attempt < PROCGEN_RETRY_COUNT; attempt++) {
-      const seed = attempt === 0 ? baseSeed : `${baseSeed}-retry-${attempt}`;
+      const seed =
+        attempt === 0 ? seedPrefix : `${seedPrefix}-retry-${attempt}`;
       try {
         const procMap = mapGenerationEndpoint.generateMap({
           seed,
@@ -257,7 +287,7 @@ export class PlayableLevelService {
     fallback.imperfectDifficulty = true;
     fallback.procgenDebugInfo = {
       procgenFallback: true,
-      attemptedSeed: baseSeed,
+      attemptedSeed: seedPrefix,
       retryCount: PROCGEN_RETRY_COUNT,
       progressionConfig: config,
     };

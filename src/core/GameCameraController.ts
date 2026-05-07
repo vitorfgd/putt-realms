@@ -6,10 +6,16 @@ import {
   GAMEPLAY_CAM_BACK_DIST,
   GAMEPLAY_CAM_FOLLOW_SMOOTH,
   GAMEPLAY_CAM_HEIGHT,
+  GAMEPLAY_CAM_HORIZ_SCALE,
   GAMEPLAY_CAMERA_BLEND_DURATION,
   PREVIEW_CAMERA_DURATION,
 } from "./Constants";
 import { clamp } from "./PlayableLevelService";
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = clamp((x - edge0) / Math.max(1e-6, edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
 
 const MIN_CAMERA_ZOOM = 0.58;
 const MAX_CAMERA_ZOOM = 1.9;
@@ -44,7 +50,11 @@ function computeBallFollowCameraPose(
   const rz = -ox * s + oz * c;
   const eyeY =
     GAMEPLAY_CAM_HEIGHT * zoom + Math.min(4.5, Math.max(0, ballY)) * 0.42;
-  outPos.set(ballX + rx * 0.94, eyeY, ballZ + rz * 0.94);
+  outPos.set(
+    ballX + rx * GAMEPLAY_CAM_HORIZ_SCALE,
+    eyeY,
+    ballZ + rz * GAMEPLAY_CAM_HORIZ_SCALE,
+  );
   outTarget.set(ballX, Ball.RADIUS * 0.58 + ballY, ballZ);
 }
 
@@ -65,6 +75,68 @@ function computeTopDownCameraPose(
     (span * 1.45 + 42) * clamp(zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
   outPos.set(cx, y, cz);
   outTarget.set(cx, 0, cz);
+}
+
+/** Low fairway flyby: beside the lane, gliding from down-range back toward the tee (smooth handoff to follow cam). */
+function computeFairwayFlybyPose(
+  level: GeneratedLevel,
+  t: number,
+  zoomScale: number,
+  panXZ: THREE.Vector2,
+  outPos: THREE.Vector3,
+  outTarget: THREE.Vector3,
+): void {
+  const b = level.bounds;
+  const sx = level.startPosition.x;
+  const sz = level.startPosition.z;
+  const sy = level.startPosition.y;
+  const hx = level.holePosition.x;
+  const hz = level.holePosition.z;
+  const hy = level.holePosition.y;
+  const fdx = hx - sx;
+  const fdz = hz - sz;
+  const fairwayLen = Math.hypot(fdx, fdz);
+
+  const zoom = clamp(zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+
+  if (fairwayLen < 1.2) {
+    computeTopDownCameraPose(b, outPos, outTarget, zoomScale, panXZ.x, panXZ.y);
+    return;
+  }
+
+  const fx = fdx / fairwayLen;
+  const fz = fdz / fairwayLen;
+  const px = -fz;
+  const pz = fx;
+
+  const u = clamp((t - 0.02) / 0.96, 0, 1);
+  const ease = u * u * (3 - 2 * u);
+  /** 1 → at tee: smooth landing near the player for transition to follow cam */
+  const fracFromTee = (1 - ease) * 0.9;
+  const along = fracFromTee * fairwayLen;
+
+  const sideBase = 7.2 * zoom;
+  const side = sideBase + Math.sin(Math.PI * ease) * 1.8;
+
+  const gx = sx + fx * along + panXZ.x;
+  const gz = sz + fz * along + panXZ.y;
+  const gy = sy + (hy - sy) * (along / fairwayLen);
+
+  /** Stay close to the turf — small intro lift only */
+  const lift =
+    6.8 * zoom + (1 - smoothstep(0, 0.22, t)) * 3.4;
+
+  outPos.set(gx + px * side, gy + lift, gz + pz * side);
+
+  const aimHole = smoothstep(0.28, 0.85, u);
+  const midFx = sx + fx * fairwayLen * 0.38;
+  const midFz = sz + fz * fairwayLen * 0.38;
+  const midY = sy + (hy - sy) * 0.38;
+  const tx = midFx + (hx - midFx) * aimHole;
+  const tz = midFz + (hz - midFz) * aimHole;
+  const ty =
+    midY + (hy - midY) * aimHole + Ball.RADIUS * 0.55;
+  outTarget.set(tx, ty, tz);
 }
 
 export class GameCameraController {
@@ -123,6 +195,11 @@ export class GameCameraController {
     );
   }
 
+  /** Clamped follow pinch zoom — used by decor occlusion to ease culling when zoomed out. */
+  getFollowZoomScale(): number {
+    return clamp(this.zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+  }
+
   panPreview(dxPixels: number, dyPixels: number, viewportHeight: number): void {
     if (!this.level) return;
     const phaseSpan = Math.max(
@@ -152,7 +229,8 @@ export class GameCameraController {
   updateTransition(deltaSeconds: number, ball: THREE.Vector3): boolean {
     this.transitionBlend += deltaSeconds / GAMEPLAY_CAMERA_BLEND_DURATION;
     this.computeGameplay(ball);
-    const k = clamp(this.transitionBlend, 0, 1);
+    const raw = clamp(this.transitionBlend, 0, 1);
+    const k = raw * raw * (3 - 2 * raw);
     this.camera.position.lerpVectors(this.previewPos, this.gameplayPos, k);
     const tgt = new THREE.Vector3().lerpVectors(
       this.previewTarget,
@@ -211,15 +289,14 @@ export class GameCameraController {
   }
 
   private computeOverview(t: number): void {
-    void t;
     if (!this.level) return;
-    computeTopDownCameraPose(
-      this.level.bounds,
+    computeFairwayFlybyPose(
+      this.level,
+      t,
+      this.zoomScale,
+      this.previewPan,
       this.previewPos,
       this.previewTarget,
-      this.zoomScale,
-      this.previewPan.x,
-      this.previewPan.y,
     );
   }
 

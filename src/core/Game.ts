@@ -16,7 +16,6 @@ import {
   loadLevelBackgroundTexture,
   resizeLevelBackdropMesh,
 } from "../level/levelBackground";
-import { createSkyCloudBackdrop } from "../level/skyClouds";
 import type { GeneratedLevel, LevelWorldBounds } from "../level/LevelTypes";
 import { holeCupRadius } from "../level/TileDimensions";
 import { BALL_COSMETIC_BODY_HEX } from "../cosmetics/cosmeticCatalog";
@@ -41,7 +40,11 @@ import {
   PREVIEW_CAMERA_DURATION,
   GAMEPLAY_CAM_BACK_DIST,
   GAMEPLAY_CAM_HEIGHT,
+  GAMEPLAY_CAM_HORIZ_SCALE,
   CAM_ORBIT_RAD_PER_PX,
+  ENABLE_DECOR_CAMERA_OCCLUSION,
+  isPsxLowResPipelineActive,
+  PSX_LOW_RES_INTERNAL_SCALE,
   SKY_BLUE,
   STUCK_SKIP_MIN_DIST_FROM_HOLE,
   STUCK_SKIP_PLANAR_SPEED,
@@ -54,10 +57,18 @@ import {
 } from "./RunStateMachine";
 import { GameAudio } from "../platform-browser/GameAudio";
 import { GameCameraController } from "./GameCameraController";
+import { PsxLowResPresenter } from "./PsxLowResPresenter";
 import { PlayableLevelService } from "./PlayableLevelService";
 import { ShotEffects } from "../gameplay/ShotEffects";
 import { CollectibleController } from "../gameplay/CollectibleController";
 import { FantasyVoidLayer } from "../level/fantasyVoid";
+import { createBackgroundFloatingIslands } from "../level/backgroundFloatingIslands";
+import { updateDecorCameraOcclusion } from "../level/decorCameraOcclusion";
+import { createIslandSurroundDecor } from "../level/islandDecorScatter";
+import {
+  buildUndermapIslandGroup,
+  computeUndermapIslandSlots,
+} from "../level/undermapIslands";
 import { GameOverlays } from "../ui/GameOverlays";
 import {
   TelemetryService,
@@ -73,6 +84,7 @@ const LETTERBOX_CLEAR = 0x3d78a8;
 const START_LEVEL_INDEX = 1;
 const MIN_CAMERA_ZOOM = 0.58;
 const MAX_CAMERA_ZOOM = 1.9;
+const TEE_CENTER_NUDGE = 0.75;
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
@@ -127,9 +139,11 @@ function computeBallFollowCameraPose(
   const rz = -ox * s + oz * c;
   const eyeY =
     GAMEPLAY_CAM_HEIGHT * zoom + Math.min(4.5, Math.max(0, ballY)) * 0.42;
-  /** Slightly shorten horizontal offset vs height → a bit more top-down without huge distance change */
-  const horizTighten = 0.94;
-  outPos.set(ballX + rx * horizTighten, eyeY, ballZ + rz * horizTighten);
+  outPos.set(
+    ballX + rx * GAMEPLAY_CAM_HORIZ_SCALE,
+    eyeY,
+    ballZ + rz * GAMEPLAY_CAM_HORIZ_SCALE,
+  );
   const tgtY = Ball.RADIUS * 0.58 + ballY;
   outTarget.set(ballX, tgtY, ballZ);
 }
@@ -220,6 +234,9 @@ export class Game {
   private readonly audio = new GameAudio();
   private shotEffects!: ShotEffects;
   private voidLayer: FantasyVoidLayer | null = null;
+  private undermapIslands: THREE.Group | null = null;
+  private islandDecor: THREE.Group | null = null;
+  private backgroundFloatingIslands: THREE.Group | null = null;
   private paused = false;
   private currentTurnCount = 0;
   private currentRampCount = 0;
@@ -241,9 +258,9 @@ export class Game {
   private cameraZoomScale = 1;
   private readonly previewPanOffset = new THREE.Vector2(0, 0);
 
-  private skyBackdrop: THREE.Group | null = null;
   private levelBackdropMesh: THREE.Mesh | null = null;
   private levelBackdropTexture: THREE.Texture | null = null;
+  private readonly psxLowResPresenter: PsxLowResPresenter | null;
   /** Camera-local — far enough that clouds/course usually draw in front */
   private readonly levelBackdropDist = 275;
 
@@ -267,6 +284,10 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.psxLowResPresenter = isPsxLowResPipelineActive()
+      ? new PsxLowResPresenter(this.renderer, PSX_LOW_RES_INTERNAL_SCALE)
+      : null;
 
     this.scene.background = new THREE.Color(SKY_BLUE);
 
@@ -460,7 +481,9 @@ export class Game {
       coinPickups: 0,
     };
     this.disposeVoidLayer();
-    this.disposeSkyBackdrop();
+    this.disposeUndermapIslands();
+    this.disposeIslandDecor();
+    this.disposeBackgroundFloatingIslands();
     this.disposeCourse();
     this.generatedLevel = this.generatePlayableLevel(levelIndex);
     this.previousDifficultyScore = this.generatedLevel.difficultyScore;
@@ -470,11 +493,18 @@ export class Game {
       this.generatedLevel,
     );
 
-    this.skyBackdrop = createSkyCloudBackdrop(
-      this.generatedLevel.bounds,
-      Math.random,
+    this.backgroundFloatingIslands = createBackgroundFloatingIslands(
+      this.generatedLevel,
     );
-    this.scene.add(this.skyBackdrop);
+    this.scene.add(this.backgroundFloatingIslands);
+    const islandSlots = computeUndermapIslandSlots(this.generatedLevel);
+    this.undermapIslands = buildUndermapIslandGroup(islandSlots);
+    this.scene.add(this.undermapIslands);
+    this.islandDecor = createIslandSurroundDecor(
+      this.generatedLevel,
+      islandSlots,
+    );
+    this.scene.add(this.islandDecor);
     this.voidLayer = new FantasyVoidLayer(this.generatedLevel.bounds);
     this.scene.add(this.voidLayer);
 
@@ -545,6 +575,9 @@ export class Game {
       turnCount: this.currentTurnCount,
       rampCount: this.currentRampCount,
     });
+    this.hud.setMapSeed(
+      this.generatedLevel.procgenSeed ?? this.generatedLevel.id,
+    );
     this.hud.setStrokes(0);
     this.hud.setCoins(this.economy.getCoins());
     this.ball.syncVisualFromRegistry(this.cosmetics.getEquippedBallCosmetic());
@@ -591,18 +624,32 @@ export class Game {
     return generated.level;
   }
 
-  private disposeSkyBackdrop(): void {
-    if (!this.skyBackdrop) return;
-    this.scene.remove(this.skyBackdrop);
-    disposeObject3D(this.skyBackdrop);
-    this.skyBackdrop = null;
-  }
-
   private disposeVoidLayer(): void {
     if (!this.voidLayer) return;
     this.scene.remove(this.voidLayer);
     disposeObject3D(this.voidLayer);
     this.voidLayer = null;
+  }
+
+  private disposeUndermapIslands(): void {
+    if (!this.undermapIslands) return;
+    this.scene.remove(this.undermapIslands);
+    disposeObject3D(this.undermapIslands);
+    this.undermapIslands = null;
+  }
+
+  private disposeIslandDecor(): void {
+    if (!this.islandDecor) return;
+    this.scene.remove(this.islandDecor);
+    disposeObject3D(this.islandDecor);
+    this.islandDecor = null;
+  }
+
+  private disposeBackgroundFloatingIslands(): void {
+    if (!this.backgroundFloatingIslands) return;
+    this.scene.remove(this.backgroundFloatingIslands);
+    disposeObject3D(this.backgroundFloatingIslands);
+    this.backgroundFloatingIslands = null;
   }
 
   private disposeCourse(): void {
@@ -629,10 +676,42 @@ export class Game {
   }
 
   private placeBallAtTee(): void {
-    this.ball.position.set(
+    const spawn = new THREE.Vector3(
       this.generatedLevel.startPosition.x,
       this.generatedLevel.startPosition.y,
       this.generatedLevel.startPosition.z,
+    );
+    const stationValues = this.generatedLevel.tiles
+      .map((tile) => tile.stationIndex)
+      .filter((station): station is number => typeof station === "number");
+    const startStation =
+      stationValues.length > 0 ? Math.min(...stationValues) : undefined;
+    const startTiles =
+      startStation !== undefined
+        ? this.generatedLevel.tiles.filter(
+            (tile) => tile.stationIndex === startStation,
+          )
+        : this.generatedLevel.tiles.slice(0, 1);
+    if (startTiles.length > 0) {
+      const cx =
+        startTiles.reduce((sum, tile) => sum + tile.worldX, 0) /
+        startTiles.length;
+      const cz =
+        startTiles.reduce((sum, tile) => sum + tile.worldZ, 0) /
+        startTiles.length;
+      const dx = cx - spawn.x;
+      const dz = cz - spawn.z;
+      const len = Math.hypot(dx, dz);
+      if (len > 1e-4) {
+        const nudge = Math.min(TEE_CENTER_NUDGE, len * 0.42);
+        spawn.x += (dx / len) * nudge;
+        spawn.z += (dz / len) * nudge;
+      }
+    }
+    this.ball.position.set(
+      spawn.x,
+      spawn.y,
+      spawn.z,
     );
   }
 
@@ -792,8 +871,11 @@ export class Game {
     this.disposeLevelBackdrop();
     this.shotEffects.dispose();
     this.disposeVoidLayer();
-    this.disposeSkyBackdrop();
+    this.disposeUndermapIslands();
+    this.disposeIslandDecor();
+    this.disposeBackgroundFloatingIslands();
     this.disposeCourse();
+    this.psxLowResPresenter?.dispose();
   }
 
   private configureShadowsForCourse(): void {
@@ -1176,6 +1258,15 @@ export class Game {
       this.cameraController.updateFollow(deltaSeconds, this.ball.position);
     }
 
+    if (ENABLE_DECOR_CAMERA_OCCLUSION) {
+      updateDecorCameraOcclusion(
+        this.camera,
+        this.ball.position,
+        [this.islandDecor, this.backgroundFloatingIslands],
+        this.cameraController.getFollowZoomScale(),
+      );
+    }
+
     this.prevPhase = phase;
 
     this.renderGameplayViewport();
@@ -1202,6 +1293,15 @@ export class Game {
     this.renderer.setClearColor(SKY_BLUE, 1);
     this.renderer.clear(true, true, true);
 
-    this.renderer.render(this.scene, this.camera);
+    if (this.psxLowResPresenter) {
+      this.psxLowResPresenter.render(this.renderer, this.scene, this.camera, SKY_BLUE, {
+        x,
+        y,
+        width,
+        height,
+      });
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }

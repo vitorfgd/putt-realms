@@ -56,8 +56,7 @@ function addCloudCluster(
 }
 
 /**
- * Follow-cam mostly looks forward/down across the lane — very high-only clouds miss the frustum.
- * Most mass sits **under** the floating deck (negative Y) and in a mid band ahead/side of the course.
+ * Clouds stay below the course plane so the map remains the highest readable layer.
  */
 export function createSkyCloudBackdrop(
   bounds: LevelWorldBounds,
@@ -77,16 +76,16 @@ export function createSkyCloudBackdrop(
 
   const nUnder = 34 + Math.floor(rng() * 14);
   for (let i = 0; i < nUnder; i++) {
-    const oy = -12 - rng() * 52;
+    const oy = -10 - rng() * 50;
     const ox = (rng() - 0.5) * spanX * 2.4;
     const oz =
       (rng() - 0.5) * spanZ * 2.35 + (hz > 0.5 ? spanZ * 0.18 : 0);
     addCloudCluster(group, template, rng, cx + ox, oy, cz + oz, 0.72);
   }
 
-  const nMid = 22 + Math.floor(rng() * 10);
+  const nMid = 18 + Math.floor(rng() * 8);
   for (let i = 0; i < nMid; i++) {
-    const oy = 6 + rng() * 38;
+    const oy = -14 - rng() * 20;
     const ox = (rng() - 0.5) * spanX * 2.1;
     const oz =
       (rng() - 0.5) * spanZ * 2 +
@@ -94,9 +93,9 @@ export function createSkyCloudBackdrop(
     addCloudCluster(group, template, rng, cx + ox, oy, cz + oz, 0.62);
   }
 
-  const nHigh = 12 + Math.floor(rng() * 8);
+  const nHigh = 6 + Math.floor(rng() * 5);
   for (let i = 0; i < nHigh; i++) {
-    const oy = 48 + rng() * 65;
+    const oy = -18 - rng() * 18;
     const ox = (rng() - 0.5) * spanX * 2.2;
     const oz = (rng() - 0.5) * spanZ * 2.1;
     addCloudCluster(group, template, rng, cx + ox, oy, cz + oz, 0.52);
