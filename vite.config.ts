@@ -14,8 +14,8 @@ function viteBase(): string {
 }
 
 /**
- * GitHub Pages: `https://<user>.github.io/<repo>/` — base is `/<repo>/`
- * when built in Actions (`GITHUB_REPOSITORY`). Override with `VITE_BASE_PATH`.
+ * GitHub Pages project URL: `https://<user>.github.io/<repo>/` needs `base: /<repo>/`.
+ * The workflow sets `VITE_BASE_PATH`; otherwise Actions uses `GITHUB_REPOSITORY`.
  */
 export default defineConfig({
   base: viteBase(),
