@@ -1,3 +1,6 @@
+# Publishes the Vite production build only. In the repo:
+# Settings → Pages → Build and deployment → Source MUST be “GitHub Actions”.
+# If Source is “Deploy from a branch”, browsers load raw index.html (/src/main.ts, %BASE_URL%, etc.).
 name: Deploy to GitHub Pages
 
 on:
@@ -29,6 +32,18 @@ jobs:
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
         run: npm ci && npm run build
+
+      - name: Verify dist is a production bundle (not source index.html)
+        run: |
+          if grep -qE '/src/main\.ts|%BASE_URL%' dist/index.html; then
+            cat dist/index.html
+            echo 'dist/index.html still looks like Vite dev/source; check build and base path.'
+            exit 1
+          fi
+          if ! grep -qE 'assets/index-[^"[:space:]]+\.js' dist/index.html; then
+            echo 'dist/index.html is missing hashed /assets/index-*.js entry script.'
+            exit 1
+          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:
