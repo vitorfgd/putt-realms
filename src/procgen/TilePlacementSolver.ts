@@ -247,6 +247,21 @@ export function laneCellsForDir(anchor: GridCell, dirX: number, dirZ: number): G
   ];
 }
 
+/** Travel direction into spine station `s` (from previous toward current). */
+export function travelIntoStation(
+  spine: GridCell[],
+  s: number,
+): { x: number; z: number } {
+  if (s <= 0) {
+    const cur = spine[0]!;
+    const next = spine[1]!;
+    return { x: next.x - cur.x, z: next.z - cur.z };
+  }
+  const cur = spine[s]!;
+  const prev = spine[s - 1]!;
+  return { x: cur.x - prev.x, z: cur.z - prev.z };
+}
+
 /** World deck Y agreement threshold (see {@link elevationByStation} / ramp rows). */
 const DECK_COPLANAR_EPS = 0.05;
 
@@ -652,6 +667,259 @@ function solveDoubleRowCurvedPath(
     spinePath,
     sumDifficultyWeights: sumWeights,
   };
+}
+
+function buildPortalRepairOccupancy(
+  tiles: PlacedTile[],
+  path: GridCell[],
+  spine: GridCell[],
+  travelIntoStationFn: (
+    spineArg: GridCell[],
+    s: number,
+  ) => { x: number; z: number },
+):
+  | {
+      occupiedKeys: ReadonlySet<string>;
+      cellStation: Map<string, number>;
+      elevationByStation: number[];
+      rampDirByStation: Map<number, "ascending" | "descending">;
+    }
+  | undefined {
+  if (path.length !== tiles.length || spine.length < 2) return undefined;
+
+  const occupiedKeys = new Set<string>();
+  for (const c of path) {
+    occupiedKeys.add(keyCell(c));
+  }
+
+  const cellStation = new Map<string, number>();
+  for (let i = 0; i < path.length; i++) {
+    const st = tiles[i]?.stationIndex;
+    if (typeof st === "number") cellStation.set(keyCell(path[i]!), st);
+  }
+
+  const elevationByStation = new Array<number>(spine.length).fill(0);
+  for (let i = 0; i < tiles.length; i++) {
+    const st = tiles[i]?.stationIndex;
+    if (typeof st !== "number" || st < 0 || st >= spine.length) continue;
+    elevationByStation[st] = tiles[i]!.position.y;
+  }
+
+  const rampDirByStation = new Map<number, "ascending" | "descending">();
+  const byStation = new Map<number, number[]>();
+  for (let i = 0; i < tiles.length; i++) {
+    const st = tiles[i]?.stationIndex;
+    if (typeof st !== "number") continue;
+    const arr = byStation.get(st) ?? [];
+    arr.push(i);
+    byStation.set(st, arr);
+  }
+  for (const arr of byStation.values()) arr.sort((a, b) => a - b);
+
+  for (let s = 1; s < spine.length - 1; s++) {
+    const idxs = byStation.get(s);
+    if (!idxs || idxs.length !== 2) continue;
+    const travel = travelIntoStationFn(spine, s);
+    const lanePair = laneCellsForDir(spine[s]!, travel.x, travel.z);
+    let rightIdx: number | undefined;
+    let leftIdx: number | undefined;
+    for (const ti of idxs) {
+      const c = path[ti]!;
+      if (c.x === lanePair[1].x && c.z === lanePair[1].z) rightIdx = ti;
+      if (c.x === lanePair[0].x && c.z === lanePair[0].z) leftIdx = ti;
+    }
+    if (rightIdx === undefined || leftIdx === undefined) continue;
+    const rt = tiles[rightIdx]!.tileType;
+    const lt = tiles[leftIdx]!.tileType;
+    if (rt === "ramp_right_wall" && lt === "ramp_left_wall") {
+      rampDirByStation.set(s, "ascending");
+    } else if (rt === "ramp_left_wall" && lt === "ramp_right_wall") {
+      rampDirByStation.set(s, "descending");
+    }
+  }
+
+  return {
+    occupiedKeys,
+    cellStation,
+    elevationByStation,
+    rampDirByStation,
+  };
+}
+
+/**
+ * Interior {@link floor_plain} that borders void under merged grid occupancy (portal suffix shifts).
+ * Used by tests; should stay zero after {@link repairMisclassifiedFloorPlainAfterGridShift}.
+ */
+export function countMisclassifiedInteriorFloorPlain(
+  tiles: PlacedTile[],
+  path: GridCell[],
+  spine: GridCell[],
+  travelIntoStationFn: (
+    spineArg: GridCell[],
+    s: number,
+  ) => { x: number; z: number },
+): number {
+  const ctx = buildPortalRepairOccupancy(
+    tiles,
+    path,
+    spine,
+    travelIntoStationFn,
+  );
+  if (!ctx) return 0;
+
+  let n = 0;
+  for (let i = 0; i < tiles.length; i++) {
+    const tile = tiles[i]!;
+    if (tile.tileType !== "floor_plain") continue;
+    const station = tile.stationIndex;
+    if (typeof station !== "number") continue;
+    if (station <= 0 || station >= spine.length - 1) continue;
+
+    const cell = path[i]!;
+    let sides = exposedSides(cell, ctx.occupiedKeys);
+    if (sides.length === 0) {
+      sides = exposedSidesCoplanarNeighbors(
+        cell,
+        ctx.occupiedKeys,
+        ctx.cellStation,
+        ctx.elevationByStation,
+      );
+    }
+    if (sides.length > 0) n++;
+  }
+  return n;
+}
+
+/**
+ * Portal suffix grid shifts can change cardinal adjacency while tile types stay as solved pre-shift.
+ * Upgrades misclassified {@link floor_plain} interiors using the same open-side rules as
+ * {@link solveDoubleRowCurvedPath}.
+ */
+export function repairMisclassifiedFloorPlainAfterGridShift(
+  tiles: PlacedTile[],
+  path: GridCell[],
+  spine: GridCell[],
+  travelIntoStationFn: (
+    spineArg: GridCell[],
+    s: number,
+  ) => { x: number; z: number },
+): void {
+  const ctx = buildPortalRepairOccupancy(
+    tiles,
+    path,
+    spine,
+    travelIntoStationFn,
+  );
+  if (!ctx) return;
+
+  const { occupiedKeys, cellStation, elevationByStation, rampDirByStation } =
+    ctx;
+
+  for (let i = 0; i < tiles.length; i++) {
+    const tile = tiles[i]!;
+    if (tile.tileType !== "floor_plain") continue;
+    const station = tile.stationIndex;
+    if (typeof station !== "number") continue;
+    if (station <= 0 || station >= spine.length - 1) continue;
+
+    const cell = path[i]!;
+    let sides = exposedSides(cell, occupiedKeys);
+    if (sides.length === 0) {
+      sides = exposedSidesCoplanarNeighbors(
+        cell,
+        occupiedKeys,
+        cellStation,
+        elevationByStation,
+      );
+    }
+    if (sides.length === 0) continue;
+
+    const travel = travelIntoStationFn(spine, station);
+    const baseRotation = Math.atan2(travel.x, travel.z);
+    const lanePair = laneCellsForDir(spine[station]!, travel.x, travel.z);
+    const isRightLane =
+      cell.x === lanePair[1].x && cell.z === lanePair[1].z;
+    const primarySide = sides[0]!;
+    const rampDir = rampDirByStation.get(station);
+
+    let tileType: TileType;
+    let rotationY: number;
+    let railS: { sx: 1 | -1; sz: 1 | -1 } | undefined;
+
+    if (rampDir === "ascending") {
+      const right = { x: travel.z, z: -travel.x };
+      const isRightWall = vecEq(
+        primarySide.x,
+        primarySide.z,
+        right.x,
+        right.z,
+      );
+      tileType = isRightWall ? "ramp_right_wall" : "ramp_left_wall";
+      rotationY = baseRotation;
+      railS = undefined;
+    } else if (rampDir === "descending") {
+      const right = { x: travel.z, z: -travel.x };
+      const isRightWall = vecEq(
+        primarySide.x,
+        primarySide.z,
+        right.x,
+        right.z,
+      );
+      tileType = isRightWall ? "ramp_left_wall" : "ramp_right_wall";
+      rotationY = baseRotation + Math.PI;
+      railS = undefined;
+    } else if (sides.length >= 2) {
+      const demoteConvexToStraight =
+        CARDINAL_GRID_DELTAS.some((d) =>
+          occupiedNeighborSplitsDeckY(
+            cell,
+            d,
+            occupiedKeys,
+            cellStation,
+            elevationByStation,
+            station,
+          ),
+        ) ||
+        (rampDir === undefined &&
+          CARDINAL_GRID_DELTAS.some((d) =>
+            occupiedNeighborIsRampStation(
+              cell,
+              d,
+              occupiedKeys,
+              cellStation,
+              rampDirByStation,
+            ),
+          ));
+      if (demoteConvexToStraight) {
+        tileType = "straight_right_wall";
+        const outward = isRightLane
+          ? { x: travel.z, z: -travel.x }
+          : { x: -travel.z, z: travel.x };
+        rotationY = rotationForSingleWall(outward);
+        railS = undefined;
+      } else {
+        tileType = "convex_right_wall";
+        rotationY = cornerRotationForOutsideWalls(
+          sides[0]!,
+          sides[1] ?? sides[0]!,
+        );
+        railS = { sx: 1, sz: -1 };
+      }
+    } else {
+      tileType = "straight_right_wall";
+      rotationY = rotationForSingleWall(primarySide);
+      railS = undefined;
+    }
+
+    const def = getTileDefinition(tileType);
+    tile.tileType = tileType;
+    tile.rotationY = rotationY;
+    tile.entrySocket = def.entrySocket;
+    tile.exitSocket = def.exitSocket;
+    tile.modelKey = def.modelKey;
+    if (railS) tile.railS = railS;
+    else delete tile.railS;
+  }
 }
 
 /**

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { GridCell } from "../level/pathGen";
 import {
   computeCameraBoundsFromTiles,
+  MIN_GRID_SEP_PORTAL_RUNS,
   validateGeneratedMap,
 } from "./GeneratedMapValidator";
 import type { GenerateMapRequest, GeneratedMap } from "./MapGenerationTypes";
@@ -18,8 +19,10 @@ import {
   isPortraitReasonable,
   isTurnStation,
   laneCellsForDir,
+  repairMisclassifiedFloorPlainAfterGridShift,
   solveDoubleRowStraightPath,
   solveTilesAlongPath,
+  travelIntoStation,
 } from "./TilePlacementSolver";
 
 function hashSeed(s: string): number {
@@ -69,17 +72,6 @@ function syntheticSpineRowMajor(path: GridCell[]): GridCell[] {
   return spine;
 }
 
-function travelIntoStation(spine: GridCell[], s: number): { x: number; z: number } {
-  if (s <= 0) {
-    const cur = spine[0]!;
-    const next = spine[1]!;
-    return { x: next.x - cur.x, z: next.z - cur.z };
-  }
-  const cur = spine[s]!;
-  const prev = spine[s - 1]!;
-  return { x: cur.x - prev.x, z: cur.z - prev.z };
-}
-
 function gapWorldFromCutStation(spine: GridCell[], cutStation: number): THREE.Vector3 {
   const cur = spine[cutStation]!;
   const next = spine[cutStation + 1]!;
@@ -90,6 +82,130 @@ function gapWorldFromCutStation(spine: GridCell[], cutStation: number): THREE.Ve
     0,
     dz * TILE_LENGTH * PORTAL_SEGMENT_GAP_ROWS,
   );
+}
+
+/** Unit cardinal grid step along the spine after a portal cut (same axis as {@link gapWorldFromCutStation}). */
+function gridStepAlongSpineAfterCut(
+  spine: GridCell[],
+  cutStation: number,
+): { x: number; z: number } {
+  const cur = spine[cutStation];
+  const next = spine[cutStation + 1];
+  if (!cur || !next) return { x: 0, z: 1 };
+  const sx = Math.sign(next.x - cur.x);
+  const sz = Math.sign(next.z - cur.z);
+  if (sx === 0 && sz === 0) return { x: 0, z: 1 };
+  return { x: sx, z: sz };
+}
+
+function minChebyshevBetweenCellSetsLocal(
+  a: readonly GridCell[],
+  b: readonly GridCell[],
+): number {
+  if (a.length === 0 || b.length === 0) return Infinity;
+  let m = Infinity;
+  for (const p of a) {
+    for (const q of b) {
+      const d = Math.max(Math.abs(p.x - q.x), Math.abs(p.z - q.z));
+      if (d < m) m = d;
+    }
+  }
+  return m;
+}
+
+function gridPathCellsAllUnique(path: readonly GridCell[]): boolean {
+  const s = new Set<string>();
+  for (const c of path) {
+    const k = `${c.x},${c.z}`;
+    if (s.has(k)) return false;
+    s.add(k);
+  }
+  return true;
+}
+
+/**
+ * After a portal merge, lane grid cells keep original coordinates while world positions translate —
+ * that lets unrelated segments sit Chebyshev-adjacent on the grid. Shift suffix indices along the
+ * spine direction until every portal jump has ≥ {@link MIN_GRID_SEP_PORTAL_RUNS} grid separation.
+ */
+function applyPortalSuffixGridSeparation(
+  mergedPath: GridCell[],
+  pathOrigSnapshot: readonly GridCell[],
+  portalLinks: NonNullable<GeneratedMap["portalLinks"]>,
+  spine: GridCell[],
+  cutsSorted: readonly number[],
+): boolean {
+  const links = [...portalLinks].sort((a, b) => a.toTileIndex - b.toTileIndex);
+  const cuts = [...cutsSorted].sort((a, b) => a - b);
+  if (links.length !== cuts.length) return false;
+
+  const n = mergedPath.length;
+  const cum = Array.from({ length: n }, () => ({ x: 0, z: 0 }));
+
+  for (let gi = 0; gi < links.length; gi++) {
+    const link = links[gi]!;
+    const cutStation = cuts[gi]!;
+    const S = link.toTileIndex;
+    const F = link.fromTileIndex;
+    if (S <= F || S < 0 || F < 0 || S >= n || F >= n) return false;
+
+    const dir = gridStepAlongSpineAfterCut(spine, cutStation);
+
+    let applied = false;
+    for (let k = 0; k < 320; k++) {
+      const shifted: GridCell[] = pathOrigSnapshot.map((orig, i) => ({
+        x: orig.x + cum[i].x + (i >= S ? dir.x * k : 0),
+        z: orig.z + cum[i].z + (i >= S ? dir.z * k : 0),
+      }));
+
+      const prefix = shifted.slice(0, F + 1);
+      const suffix = shifted.slice(S);
+      const sep = minChebyshevBetweenCellSetsLocal(prefix, suffix);
+      if (sep >= MIN_GRID_SEP_PORTAL_RUNS && gridPathCellsAllUnique(shifted)) {
+        for (let i = S; i < n; i++) {
+          cum[i].x += dir.x * k;
+          cum[i].z += dir.z * k;
+        }
+        applied = true;
+        break;
+      }
+    }
+    if (!applied) return false;
+  }
+
+  for (let i = 0; i < n; i++) {
+    mergedPath[i]!.x = pathOrigSnapshot[i]!.x + cum[i].x;
+    mergedPath[i]!.z = pathOrigSnapshot[i]!.z + cum[i].z;
+  }
+  return true;
+}
+
+/** Align spine sampling cells with lane grid indices after {@link applyPortalSuffixGridSeparation}. */
+function shiftSpinePathAfterPortalSuffix(
+  spineRaw: unknown,
+  mergedPath: GridCell[],
+  pathOrigSnapshot: readonly GridCell[],
+  mergedTiles: GeneratedMap["tiles"],
+): GridCell[] | undefined {
+  if (!Array.isArray(spineRaw) || spineRaw.length < 2) return undefined;
+  const shiftedSpinePath = (spineRaw as GridCell[]).map((c) => ({ ...c }));
+  const deltaByStation = new Map<number, { x: number; z: number }>();
+  for (let i = 0; i < mergedPath.length; i++) {
+    const st = mergedTiles[i]?.stationIndex;
+    if (typeof st !== "number") continue;
+    if (deltaByStation.has(st)) continue;
+    deltaByStation.set(st, {
+      x: mergedPath[i]!.x - pathOrigSnapshot[i]!.x,
+      z: mergedPath[i]!.z - pathOrigSnapshot[i]!.z,
+    });
+  }
+  for (let s = 0; s < shiftedSpinePath.length; s++) {
+    const d = deltaByStation.get(s);
+    if (!d) continue;
+    shiftedSpinePath[s]!.x += d.x;
+    shiftedSpinePath[s]!.z += d.z;
+  }
+  return shiftedSpinePath;
 }
 
 function translationBeforeStation(
@@ -693,7 +809,54 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
     if (pendingPortalFrom !== undefined) return map;
     if (portalLinks.length !== cuts.length) return map;
 
+    const pathOrigSnapshot = mergedPath.map((c) => ({ ...c }));
+    if (
+      !applyPortalSuffixGridSeparation(
+        mergedPath,
+        pathOrigSnapshot,
+        portalLinks,
+        spine,
+        cuts,
+      )
+    ) {
+      return map;
+    }
+
+    const shiftedSpinePath = shiftSpinePathAfterPortalSuffix(
+      spineRaw,
+      mergedPath,
+      pathOrigSnapshot,
+      mergedTiles,
+    );
+    const spineForRepair = shiftedSpinePath ?? spine;
+    repairMisclassifiedFloorPlainAfterGridShift(
+      mergedTiles,
+      mergedPath,
+      spineForRepair,
+      travelIntoStation,
+    );
+
+    const { cx: gridCxSep, cz: gridCzSep } = centerOffsets(origPath);
+    for (let i = 0; i < mergedTiles.length; i++) {
+      const tile = mergedTiles[i]!;
+      const cell = mergedPath[i]!;
+      const st = typeof tile.stationIndex === "number" ? tile.stationIndex : 0;
+      const tw = translationBeforeStation(st, cuts, spine);
+      repositionDeckTileFromGridCurved(
+        tile,
+        cell,
+        gridCxSep,
+        gridCzSep,
+        tw,
+        deckScratch,
+        pivotScratch,
+      );
+    }
+
     const dbg = { ...map.debugInfo };
+    if (shiftedSpinePath) {
+      dbg.spinePath = shiftedSpinePath;
+    }
 
     const finalPairLeft = mergedTiles.length - 2;
     const { hole } = computeStartHoleDoubleRow(mergedTiles, undefined);

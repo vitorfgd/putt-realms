@@ -49,6 +49,7 @@ Generated in `generateHazardSpecs(levelIndex, tiles, rng)`:
 ## Debug / replay
 
 - `procgenSeed` + `levelIndex` reproduces layout when running the same TS generator.
+- **Web prototype:** the **`?procgenDebug`** URL mode runs the Three.js **ProcgenDebugViewer** (see [`../PROCGEN_DEBUG.md`](../PROCGEN_DEBUG.md)); there is no separate HTTP procgen API in-repo.
 - `procgenDebugInfo` may include `gridPath`, `spinePath`, `progressionProfile`—useful for tooling; **do not** require unknown keys in MHE runtime.
 
 ## AI-safe variation

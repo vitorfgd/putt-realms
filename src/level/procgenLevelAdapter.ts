@@ -30,6 +30,11 @@ export interface ProcgenAdaptOptions {
   /** Integer difficulty target shown in HUD / skip pricing — mirrors legacy generator. */
   targetDifficultyRounded: number;
   rng: () => number;
+  /**
+   * Skip {@link validateAdaptedLevel} (surface samples, rail sanity). Procgen debug uses this when a map
+   * fails strict checks but deck positions are still valid for visual passes (island décor, undermap slots).
+   */
+  skipGameplayValidation?: boolean;
 }
 
 function gridPathFromDebug(map: GeneratedMap): GridCell[] {
@@ -492,6 +497,8 @@ export function adaptProcgenMapToGeneratedLevel(
     collectibles: [],
     railColliders: buildRailColliders(tiles),
   };
-  validateAdaptedLevel(level);
+  if (!opts.skipGameplayValidation) {
+    validateAdaptedLevel(level);
+  }
   return level;
 }

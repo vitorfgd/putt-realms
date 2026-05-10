@@ -13,6 +13,8 @@ export const ISLAND_DECOR_ASSET_KEYS = [
   "decor_small_mushroom",
 ] as const satisfies readonly AssetKey[];
 
+export type DecorKey = (typeof ISLAND_DECOR_ASSET_KEYS)[number];
+
 const SCRATCH_BOX = new THREE.Box3();
 const SCRATCH_SIZE = new THREE.Vector3();
 
@@ -94,9 +96,47 @@ function islandsOnlyMinDistFromDecks(
   key: DecorKey,
   propRadiusXZ: number,
 ): number {
-  const canopy = propRadiusXZ * (key === "decor_fantasy_pine_tree" ? 1.28 : 1.06);
-  const pad = key === "decor_fantasy_pine_tree" ? 1.15 : 0.42;
+  const canopy = propRadiusXZ * (key === "decor_fantasy_pine_tree" ? 1.12 : 1.02);
+  const pad = key === "decor_fantasy_pine_tree" ? 0.68 : 0.2;
   return DECK_EXCLUDE_R + canopy + pad;
+}
+
+/**
+ * Small procgen quad pads sit directly under deck tiles — requiring full pine/fan exclusion radius on the
+ * island disk leaves **no** valid XZ samples (and post-scale checks would reject anyway). Cap clearance so an
+ * annulus on the mesh can still satisfy décor placement.
+ */
+function maxDeckClearanceFeasibleOnSlot(slot: UndermapIslandSlot): number {
+  return slot.halfWidthWorld * 0.82 + TILE_SIZE * 0.25;
+}
+
+function effectiveIslandsOnlyDeckClearance(
+  key: DecorKey,
+  propRadiusXZ: number,
+  slot: UndermapIslandSlot,
+): number {
+  return Math.min(
+    islandsOnlyMinDistFromDecks(key, propRadiusXZ),
+    maxDeckClearanceFeasibleOnSlot(slot),
+  );
+}
+
+function nearestSlotToXZ(
+  slots: readonly UndermapIslandSlot[],
+  x: number,
+  z: number,
+): UndermapIslandSlot | undefined {
+  if (slots.length === 0) return undefined;
+  let best = slots[0]!;
+  let bestD = Infinity;
+  for (const s of slots) {
+    const d = Math.hypot(x - s.x, z - s.z);
+    if (d < bestD) {
+      bestD = d;
+      best = s;
+    }
+  }
+  return best;
 }
 
 function applyShadowMode(
@@ -155,6 +195,34 @@ function scaleAndSnapToGround(
   node.position.set(x, groundY - SCRATCH_BOX.min.y, z);
 }
 
+function isLargeIslandCanopyDecor(key: DecorKey): boolean {
+  return (
+    key === "decor_fantasy_pine_tree" || key === "decor_fan_cluster"
+  );
+}
+
+/**
+ * Oriented ellipse under the slot — matches how {@link buildUndermapIslandGroup} scales the mesh
+ * (rotationY + scaleAxisMul). Used so ground Y is never island-height unless XZ is actually over the pad.
+ */
+function xzInsideUndermapSlotFootprint(
+  slot: UndermapIslandSlot,
+  x: number,
+  z: number,
+): boolean {
+  const dx = x - slot.x;
+  const dz = z - slot.z;
+  const c = Math.cos(-slot.rotationY);
+  const sn = Math.sin(-slot.rotationY);
+  const lx = dx * c - dz * sn;
+  const lz = dx * sn + dz * c;
+  const ax = slot.scaleAxisMul?.x ?? 1;
+  const az = slot.scaleAxisMul?.z ?? 1;
+  const rx = Math.max(0.45, slot.halfWidthWorld * 0.92 * ax);
+  const rz = Math.max(0.45, slot.halfWidthWorld * 0.92 * az);
+  return (lx * lx) / (rx * rx) + (lz * lz) / (rz * rz) <= 1;
+}
+
 function trySampleNearIsland(
   slot: UndermapIslandSlot,
   level: GeneratedLevel,
@@ -163,17 +231,23 @@ function trySampleNearIsland(
 ): { x: number; z: number } | null {
   for (let a = 0; a < maxAttempts; a++) {
     const ang = rng() * Math.PI * 2;
-    const rad = slot.halfWidthWorld * (0.34 + rng() * 0.48);
+    /** Footprint clip guarantees Y snap matches visible mesh — radius can stay generous. */
+    const rad = slot.halfWidthWorld * (0.28 + rng() * 0.44);
     const x = slot.x + Math.cos(ang) * rad;
     const z = slot.z + Math.sin(ang) * rad;
-    if (isOutsidePlayableRoute(x, z, level)) return { x, z };
+    if (
+      isOutsidePlayableRoute(x, z, level) &&
+      xzInsideUndermapSlotFootprint(slot, x, z)
+    ) {
+      return { x, z };
+    }
   }
   return null;
 }
 
 /**
- * Outer annulus on the island top so samples avoid the deck stack above the centroid; each candidate
- * must stay ≥ `minDistFromDeckCenter` from every tile deck origin (see {@link islandsOnlyMinDistFromDecks}).
+ * Island-only décor: stay ≥ `minDistFromDeckCenter` from decks but **bias inward** so props sit on the
+ * mesh near the fairway instead of the outer rim (where they read as floating).
  */
 function trySampleIslandRimClearOfDecks(
   slot: UndermapIslandSlot,
@@ -181,20 +255,31 @@ function trySampleIslandRimClearOfDecks(
   rng: () => number,
   maxAttempts: number,
   minDistFromDeckCenter: number,
+  decorKey: DecorKey,
 ): { x: number; z: number } | null {
-  const maxR = Math.max(0.65, slot.halfWidthWorld * 0.9);
-  const innerR = Math.min(maxR * 0.5, maxR - 1.05);
-  const lo = Math.max(0.5, innerR);
-  const hi = maxR;
-  if (hi <= lo + 0.35) return null;
+  const large = isLargeIslandCanopyDecor(decorKey);
+  const lo = 0.22;
+  /** World polar radius cap; footprint ellipse removes rim floats — no need to starve placement here. */
+  const hi = Math.max(
+    lo + 0.18,
+    Math.min(
+      slot.halfWidthWorld * (large ? 0.72 : 0.8),
+      TILE_SIZE * 1.9,
+    ),
+  );
+  if (hi <= lo + 0.12) return null;
 
   const needSq = minDistFromDeckCenter * minDistFromDeckCenter;
   for (let a = 0; a < maxAttempts; a++) {
     const ang = rng() * Math.PI * 2;
-    const rad = lo + (hi - lo) * Math.sqrt(rng());
+    const frac = Math.pow(rng(), large ? 1.38 : 1.22);
+    const rad = lo + (hi - lo) * frac;
     const x = slot.x + Math.cos(ang) * rad;
     const z = slot.z + Math.sin(ang) * rad;
-    if (minDistSqToTiles(x, z, level) >= needSq) {
+    if (
+      minDistSqToTiles(x, z, level) >= needSq &&
+      xzInsideUndermapSlotFootprint(slot, x, z)
+    ) {
       return { x, z };
     }
   }
@@ -207,8 +292,8 @@ function voidShelfGroundY(rng: () => number): number {
 }
 
 /**
- * Uses support-island tops when xz is inside their footprint; avoids props floating on
- * a high arbitrary shelf far from meshes.
+ * Island top Y only when XZ lies on the pad footprint — breaks the loop between “tight reach → no décor”
+ * and “loose reach → props floating with no mesh”.
  */
 function resolveDecorGroundY(
   x: number,
@@ -219,11 +304,9 @@ function resolveDecorGroundY(
   let bestY = shelfFallback;
   let bestD = Infinity;
   for (const s of slots) {
-    const dx = x - s.x;
-    const dz = z - s.z;
-    const d = Math.hypot(dx, dz);
-    const reach = s.halfWidthWorld * 1.48 + 3.8;
-    if (d <= reach && d < bestD) {
+    if (!xzInsideUndermapSlotFootprint(s, x, z)) continue;
+    const d = Math.hypot(x - s.x, z - s.z);
+    if (d < bestD) {
       bestD = d;
       bestY = s.topY + ISLAND_SURFACE_BIAS_Y;
     }
@@ -235,11 +318,13 @@ function trySampleOffDeck(
   level: GeneratedLevel,
   rng: () => number,
   maxAttempts: number,
+  decorKey: DecorKey,
 ): { x: number; z: number } | null {
   const b = level.bounds;
   const spanX = b.maxX - b.minX;
   const spanZ = b.maxZ - b.minZ;
-  const pad = Math.max(26, spanX, spanZ) * 0.72;
+  const padMul = isLargeIslandCanopyDecor(decorKey) ? 0.48 : 0.52;
+  const pad = Math.max(18, spanX, spanZ) * padMul;
   for (let a = 0; a < maxAttempts; a++) {
     const x = b.minX - pad + rng() * (spanX + pad * 2);
     const z = b.minZ - pad + rng() * (spanZ + pad * 2);
@@ -247,8 +332,6 @@ function trySampleOffDeck(
   }
   return null;
 }
-
-type DecorKey = (typeof ISLAND_DECOR_ASSET_KEYS)[number];
 
 function approximateClearanceRadius(key: DecorKey, targetHeight: number): number {
   switch (key) {
@@ -316,19 +399,25 @@ function tryPlaceDecor(
             slot,
             level,
             rng,
-            240,
-            islandsOnlyMinDistFromDecks(key, rPre),
+            isLargeIslandCanopyDecor(key) ? 840 : 620,
+            effectiveIslandsOnlyDeckClearance(key, rPre, slot),
+            key,
           )
-        : trySampleNearIsland(slot, level, rng, 60);
+        : trySampleNearIsland(slot, level, rng, 170);
       if (xz) {
         const gy = islandsOnly
-          ? slot.topY + ISLAND_SURFACE_BIAS_Y
+          ? resolveDecorGroundY(
+              xz.x,
+              xz.z,
+              slots,
+              slot.topY + ISLAND_SURFACE_BIAS_Y,
+            )
           : resolveDecorGroundY(xz.x, xz.z, slots, slot.topY + ISLAND_SURFACE_BIAS_Y);
         return { ...xz, groundY: gy };
       }
     }
     if (!islandsOnly) {
-      const xzOff = trySampleOffDeck(level, rng, 90);
+      const xzOff = trySampleOffDeck(level, rng, 160, key);
       if (xzOff) {
         const gy = resolveDecorGroundY(xzOff.x, xzOff.z, slots, shelfGroundY);
         return { ...xzOff, groundY: gy };
@@ -371,17 +460,15 @@ function tryPlaceDecor(
       continue;
     }
 
-    if (
-      islandsOnly &&
-      !isFarEnoughFromAllTileDecks(
-        sample.x,
-        sample.z,
-        level,
-        islandsOnlyMinDistFromDecks(key, rPost),
-      )
-    ) {
-      disposeDecorClone(node);
-      continue;
+    if (islandsOnly) {
+      const anchor = nearestSlotToXZ(slots, sample.x, sample.z);
+      const needDist = anchor
+        ? effectiveIslandsOnlyDeckClearance(key, rPost, anchor)
+        : islandsOnlyMinDistFromDecks(key, rPost);
+      if (!isFarEnoughFromAllTileDecks(sample.x, sample.z, level, needDist)) {
+        disposeDecorClone(node);
+        continue;
+      }
     }
 
     placed.push({ x: sample.x, z: sample.z, r: rPost });
@@ -502,7 +589,7 @@ export function createIslandSurroundDecor(
   }
 
   const placed: { x: number; z: number; r: number }[] = [];
-  const placeAttempts = 320;
+  const placeAttempts = 520;
 
   for (const job of jobs) {
     const node = tryPlaceDecor(

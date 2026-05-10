@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { GridCell } from "../level/pathGen";
 import { adaptProcgenMapToGeneratedLevel } from "../level/procgenLevelAdapter";
 import { LevelGenerator } from "../level/LevelGenerator";
-import { validateGeneratedMap } from "./GeneratedMapValidator";
+import {
+  MIN_GRID_SEP_PORTAL_RUNS,
+  validateGeneratedMap,
+} from "./GeneratedMapValidator";
 import { mapGenerationEndpoint } from "./MapGenerationEndpoint";
+import {
+  countMisclassifiedInteriorFloorPlain,
+  travelIntoStation,
+} from "./TilePlacementSolver";
 import {
   enumerateProcgenFlatGridQuads,
 } from "./procgenUndermapQuads";
@@ -20,13 +27,12 @@ function expectMapValid(
 }
 
 describe("procgen pipeline", () => {
-  it("flat-height 2x2 grid block centers undermap quad (seed 1778370604878-16737912)", () => {
-    const seed = "1778370604878-16737912";
-    let hitTd: number | undefined;
+  it("flat-height 2×2 procgen quads match mean deck centers", () => {
     let map: ReturnType<typeof mapGenerationEndpoint.generateMap> | undefined;
-    for (let td = 1; td <= 20; td++) {
+    let quad: ReturnType<typeof enumerateProcgenFlatGridQuads>[number] | undefined;
+    for (let td = 4; td <= 22; td++) {
       const m = mapGenerationEndpoint.generateMap({
-        seed,
+        seed: "vitest-flat-quad-centers",
         levelIndex: td,
         targetDifficulty: td,
         maxTiles: 16 + td * 5,
@@ -34,47 +40,90 @@ describe("procgen pipeline", () => {
         allowCurves: true,
       });
       const path = m.debugInfo.gridPath as GridCell[];
-      const keys = new Set(
-        path.map((c) => `${c.x},${c.z}`),
+      if (!validateGeneratedMap(m, path).ok) continue;
+      const quads = enumerateProcgenFlatGridQuads(m);
+      if (quads.length === 0) continue;
+      map = m;
+      quad = quads[0]!;
+      break;
+    }
+    expect(map, "expected some difficulty to yield a coplanar 2×2 quad").toBeDefined();
+    expectMapValid(map!);
+    const path = map!.debugInfo.gridPath as GridCell[];
+    const q = quad!;
+    let ex = 0;
+    let ez = 0;
+    let n = 0;
+    const corners = [
+      `${q.anchorGx},${q.anchorGz}`,
+      `${q.anchorGx + 1},${q.anchorGz}`,
+      `${q.anchorGx},${q.anchorGz + 1}`,
+      `${q.anchorGx + 1},${q.anchorGz + 1}`,
+    ];
+    for (let i = 0; i < path.length; i++) {
+      const k = `${path[i]!.x},${path[i]!.z}`;
+      if (!corners.includes(k)) continue;
+      const t = map!.tiles[i]!;
+      const d = deckCenterWorldFromPivot(
+        t.position,
+        t.rotationY,
+        getTileDefinition(t.tileType),
       );
-      if (
-        keys.has("1,-5") &&
-        keys.has("1,-6") &&
-        keys.has("2,-5") &&
-        keys.has("2,-6")
-      ) {
-        const quads = enumerateProcgenFlatGridQuads(m);
-        const q = quads.find((x) => x.anchorGx === 1 && x.anchorGz === -6);
-        if (q) {
-          hitTd = td;
-          map = m;
-          let ex = 0;
-          let ez = 0;
-          for (let i = 0; i < path.length; i++) {
-            const c = path[i]!;
-            const k = `${c.x},${c.z}`;
-            if (!["1,-5", "1,-6", "2,-5", "2,-6"].includes(k)) continue;
-            const t = m.tiles[i]!;
-            const d = deckCenterWorldFromPivot(
-              t.position,
-              t.rotationY,
-              getTileDefinition(t.tileType),
-            );
-            ex += d.x;
-            ez += d.z;
-          }
-          ex /= 4;
-          ez /= 4;
-          expect(Math.hypot(q.cx - ex, q.cz - ez)).toBeLessThan(0.02);
-          break;
+      ex += d.x;
+      ez += d.z;
+      n++;
+    }
+    expect(n).toBe(4);
+    ex /= 4;
+    ez /= 4;
+    expect(Math.hypot(q.cx - ex, q.cz - ez)).toBeLessThan(0.02);
+  });
+
+  it("curved double-row portal gaps shift grid so consecutive runs are Chebyshev-separated (1778371769655-643338418 td=17)", () => {
+    const map = mapGenerationEndpoint.generateMap({
+      seed: "1778371769655-643338418",
+      levelIndex: 17,
+      targetDifficulty: 17,
+      maxTiles: 16 + 17 * 5,
+      allowRamps: true,
+      allowCurves: true,
+    });
+    expectMapValid(map);
+    expect(map.portalLinks?.length ?? 0).toBeGreaterThan(0);
+    expect(Array.isArray(map.debugInfo.spinePath)).toBe(true);
+
+    const path = map.debugInfo.gridPath as GridCell[];
+    const sorted = [...map.portalLinks!].sort(
+      (a, b) => a.toTileIndex - b.toTileIndex,
+    );
+    const runs: [number, number][] = [];
+    runs.push([0, sorted[0]!.fromTileIndex]);
+    for (let gi = 0; gi < sorted.length - 1; gi++) {
+      runs.push([
+        sorted[gi]!.toTileIndex,
+        sorted[gi + 1]!.fromTileIndex,
+      ]);
+    }
+    runs.push([
+      sorted[sorted.length - 1]!.toTileIndex,
+      path.length - 1,
+    ]);
+
+    for (let ri = 0; ri < runs.length - 1; ri++) {
+      const [a0, a1] = runs[ri]!;
+      const [b0, b1] = runs[ri + 1]!;
+      let minSep = Infinity;
+      for (let p = a0; p <= a1; p++) {
+        for (let q = b0; q <= b1; q++) {
+          const d = Math.max(
+            Math.abs(path[p]!.x - path[q]!.x),
+            Math.abs(path[p]!.z - path[q]!.z),
+          );
+          if (d < minSep) minSep = d;
         }
       }
+      expect(minSep).toBeGreaterThanOrEqual(MIN_GRID_SEP_PORTAL_RUNS);
     }
-    expect(
-      hitTd,
-      "expected flat coplanar 2x2 at grid (1,-6)…(2,-5) for this seed at some difficulty",
-    ).toBeDefined();
-    expectMapValid(map!);
   });
 
   it("regression: 1778367470436-265782663 keeps start-adjacent bend inner floor and outer straight", () => {
@@ -107,6 +156,30 @@ describe("procgen pipeline", () => {
     expect(map.finishKind).toBe("portal");
     expect(map.finishPortalTileIndex).toBeDefined();
     expect(map.tiles.filter((t) => t.tileType === "start_placeholder")).toHaveLength(2);
+  });
+
+  it("regression: 1778375369711-736806766 portal-shifted curved map has no floor_plain on open corridor edges", () => {
+    const map = mapGenerationEndpoint.generateMap({
+      seed: "1778375369711-736806766",
+      levelIndex: 16,
+      targetDifficulty: 16,
+      maxTiles: 16 + 16 * 5,
+      allowRamps: true,
+      allowCurves: true,
+    });
+    expectMapValid(map);
+    expect(map.portalLinks?.length ?? 0).toBeGreaterThan(0);
+    const path = map.debugInfo.gridPath as GridCell[];
+    const spine = map.debugInfo.spinePath as GridCell[];
+    expect(Array.isArray(spine) && spine.length >= 2).toBe(true);
+    expect(
+      countMisclassifiedInteriorFloorPlain(
+        map.tiles,
+        path,
+        spine,
+        travelIntoStation,
+      ),
+    ).toBe(0);
   });
 
   it("generateMap double_row validates and adapts", () => {

@@ -1,7 +1,9 @@
 # Putt Realms — Procedural Generation Technical Reference
 
 > **Living document.** Update this file whenever a procgen file changes.  
-> Last updated: 2026-05-09 (invariants doc + curved double-row overlap rejection + hazards on elevated decks)
+> Last updated: 2026-05-09 (procgen debug doc split + portal grid separation + décor scatter tuning)
+
+**Companion docs:** [**PROCGEN_DEBUG.md**](./PROCGEN_DEBUG.md) (URLs, toolbar, viewer-only behavior), [**HANDOFF_MESSAGE.md**](./HANDOFF_MESSAGE.md) (onboarding blurb), repo [**README.md**](../README.md).
 
 ---
 
@@ -83,9 +85,8 @@ acceleration, elevated flat resting, OOB falling, and shot-drag aim planes are a
 the surface under the ball rather than a rectangular course bound. Rail colliders also carry
 vertical bands so low/elevated rails do not collide through the ball at the wrong height.
 
-The debug URL flow is preserved: `?procgenDebug=1&procgenSeed=...&procgenDifficulty=...`
-reproduces gameplay layouts when the seed is the gameplay seed and the difficulty is the
-same 1-20 progression level.
+The debug URL flow is preserved: `?procgenDebug` (query flag) plus optional `procgenSeed` /
+`procgenDifficulty` reproduces layouts in the **ProcgenDebugViewer** (see [**PROCGEN_DEBUG.md**](./PROCGEN_DEBUG.md)).
 
 ---
 
@@ -511,10 +512,11 @@ PosX face  → (+halfWidth, y, 0)
 
 `validateGeneratedMap()` checks:
 
-- At least one `start_placeholder` and one `hole_placeholder`.
+- At least one `start_placeholder` and one `hole_placeholder` (unless `finishKind === "portal"` with a valid finish portal index).
 - All tile positions / rotations are finite.
-- **double_row_straight:** path is `(0,z),(1,z)` pairs for z=0..N, no duplicates.
-- **single_path:** each step is cardinal-adjacent (Manhattan distance = 1), no duplicates.
+- **double_row_straight:** either straight strip rules, **portal-gap** row-major variant with `portalLinks`, or **curved** `gridPath` + `spinePath` bend checks (with portal-cut exceptions on the spine chain).
+- **single_path:** each step is cardinal-adjacent (Manhattan distance = 1) or bridged by `portalLinks`, no duplicate grid cells.
+- **Portal-linked segments:** consecutive portal runs must meet minimum **Chebyshev** grid separation (`MIN_GRID_SEP_PORTAL_RUNS` in `GeneratedMapValidator.ts`) after suffix grid shifts in `MapGenerationEndpoint.applyPortalGapsDoubleRow`.
 - `cameraBounds` has positive, finite, reasonable span (≤ 800 world units per axis).
 - Tile count matches grid path length.
 
@@ -587,6 +589,10 @@ inner apex cell and `convex_right_wall` on the outer apex cell.
 
 Converts `GeneratedMap` → `GeneratedLevel` for `LevelBuilder`.
 
+**Options**
+
+- **`skipGameplayValidation`** (optional): when `true`, skips `validateAdaptedLevel()` (surface/rail checks). Used by **ProcgenDebugViewer** after a failed strict adapt so hazards / undermap-path slots / island décor can still build from deck positions. Do **not** use for shipping gameplay paths unless you understand the risk.
+
 Key mapping:
 
 | Procgen `tileType` | Legacy `type` |
@@ -611,11 +617,10 @@ so the FBX art is used instead of procedural geometry.
 
 ### Procgen Debug Viewer
 
-URL parameter: `?procgenDebug=1`
-
-Optional replay parameter: `?procgenDebug=1&procgenSeed=<seed>`. The toolbar shows
-the current seed, can copy it, and can regenerate a map from a pasted seed.
-Use `procgenDifficulty=1..20` or the toolbar difficulty input to preview progression.
+Activated when the page URL includes the **`procgenDebug`** query parameter (value optional).
+Full URL reference, toolbar controls, keyboard shortcuts, what gets rendered (tiles, hazards,
+undermap quads/path, island décor), and the **adapter retry** behavior live in
+[**PROCGEN_DEBUG.md**](./PROCGEN_DEBUG.md).
 
 ### Difficulty Progression
 
@@ -680,12 +685,14 @@ src/procgen/
 │                                 measureRampExitFloorY, snapRampExitFloorToHeight,
 │                                 centerModelOnDeckOrigin, PROC_GEN_TILE_MODEL_EXTENT
 ├── DebugMapRenderer.ts           createDebugPlaceholderGroup (2×2 coloured slabs)
-├── ProcgenDebugViewer.ts         Dev scene (?procgenDebug=1), keyboard controls
+├── ProcgenDebugViewer.ts         Dev scene (?procgenDebug), keyboard controls, décor/undermap
 ├── SocketDebugHelpers.ts         Per-tile pivot/entry/exit visualisers
-└── bootstrapProcgenDebug.ts      Preloads all procgen assets for the debug scene
+├── bootstrapProcgenDebug.ts      Preloads procgen + hazard + décor assets; mounts viewer
+└── procgenUndermapQuads.ts       Coplanar 2×2 undermap island slots for debug/gameplay
 
 src/level/
-├── procgenLevelAdapter.ts        GeneratedMap → GeneratedLevel adapter
+├── islandDecorScatter.ts         Props on/near undermap slots (game + procgen debug)
+├── procgenLevelAdapter.ts        GeneratedMap → GeneratedLevel adapter (+ skipGameplayValidation)
 ├── LevelBuilder.ts               Iterates tiles, creates piece groups at worldX/Z
 └── tiles/
     └── TileKit.ts                tryAttachTileModel: scale + centerModelOnDeckOrigin
@@ -694,6 +701,13 @@ src/level/
 ---
 
 ## 13. Changelog
+
+### 2026-05-09 — Procgen debug docs + portal segment separation + island décor
+
+- **Docs:** Added [**PROCGEN_DEBUG.md**](./PROCGEN_DEBUG.md), [**HANDOFF_MESSAGE.md**](./HANDOFF_MESSAGE.md), repo [**README.md**](../README.md).
+- **Portal double-row (curved):** suffix **grid** shifts + `spinePath` station deltas keep Chebyshev separation between portal-linked runs; spine chain / bend validation skips artificial gaps at portal cuts.
+- **Procgen debug décor:** strict `adaptProcgenMapToGeneratedLevel` failures retry with `skipGameplayValidation`; island-only scatter when slots exist (no distant void ring); merged quad + path slots when quads present; console hints if décor meshes are empty.
+- **Island scatter:** capped deck clearance on small pads + outer rim radius cap (`TILE_SIZE * 1.9`) so props stay near the fairway.
 
 ### 2026-05-01 - Double-row curves
 

@@ -1,6 +1,6 @@
 import type { GridCell } from "../level/pathGen";
 import { deckCenterWorldFromPivot, getTileDefinition, TILE_LENGTH } from "./TileCatalog";
-import type { Box3Like, GeneratedMap } from "./MapGenerationTypes";
+import type { Box3Like, GeneratedMap, PortalLink } from "./MapGenerationTypes";
 
 export interface ValidationResult {
   ok: boolean;
@@ -16,6 +16,74 @@ function isFiniteVec(v: { x: number; y: number; z: number }): boolean {
 }
 
 const MAX_AXIS_SPAN = 800;
+
+/**
+ * Chebyshev grid distance required between any tile cell of one portal-linked segment vs another
+ * (same rule regardless of deck height — avoids floating-island / décor overlap between disconnected runs).
+ */
+export const MIN_GRID_SEP_PORTAL_RUNS = 2;
+
+function minChebyshevBetweenCellSets(
+  a: readonly GridCell[],
+  b: readonly GridCell[],
+): number {
+  if (a.length === 0 || b.length === 0) return Infinity;
+  let m = Infinity;
+  for (const p of a) {
+    for (const q of b) {
+      const d = Math.max(Math.abs(p.x - q.x), Math.abs(p.z - q.z));
+      if (d < m) m = d;
+    }
+  }
+  return m;
+}
+
+/** Tile-index ranges for each contiguous portal segment (tee→dead, continuation→dead, …). */
+function portalGridRunIndexRanges(
+  linksSorted: readonly PortalLink[],
+  pathLen: number,
+): [number, number][] {
+  if (linksSorted.length === 0) return [[0, pathLen - 1]];
+  const runs: [number, number][] = [];
+  runs.push([0, linksSorted[0]!.fromTileIndex]);
+  for (let gi = 0; gi < linksSorted.length - 1; gi++) {
+    runs.push([
+      linksSorted[gi]!.toTileIndex,
+      linksSorted[gi + 1]!.fromTileIndex,
+    ]);
+  }
+  runs.push([
+    linksSorted[linksSorted.length - 1]!.toTileIndex,
+    pathLen - 1,
+  ]);
+  return runs;
+}
+
+/** Portal-linked grid runs must not sit within one tile (Chebyshev) of each other. */
+function validatePortalRunGridSeparation(
+  map: GeneratedMap,
+  path: GridCell[],
+): string[] {
+  const errors: string[] = [];
+  const links = map.portalLinks ?? [];
+  if (links.length === 0) return errors;
+
+  const sorted = [...links].sort((a, b) => a.toTileIndex - b.toTileIndex);
+  const runs = portalGridRunIndexRanges(sorted, path.length);
+  for (let i = 0; i < runs.length - 1; i++) {
+    const [a0, a1] = runs[i]!;
+    const [b0, b1] = runs[i + 1]!;
+    const A = path.slice(a0, a1 + 1);
+    const B = path.slice(b0, b1 + 1);
+    const sep = minChebyshevBetweenCellSets(A, B);
+    if (sep < MIN_GRID_SEP_PORTAL_RUNS) {
+      errors.push(
+        `portal grid segments ${i}/${i + 1} too close (min Chebyshev ${sep}; need >= ${MIN_GRID_SEP_PORTAL_RUNS})`,
+      );
+    }
+  }
+  return errors;
+}
 
 /** Belt-and-suspenders: each fairway cell appears at most once in gridPath. */
 function validateGridPathUniqueOccupancy(path: GridCell[] | undefined): string[] {
@@ -38,8 +106,15 @@ function portalBridgeKeys(map: GeneratedMap): Set<string> {
   return out;
 }
 
-/** Cardinal-adjacent steps only, unless a portal metadata link bridges the gap. */
-function validateChain(path: GridCell[] | undefined, map?: GeneratedMap): string[] {
+/**
+ * Cardinal-adjacent steps only, unless a portal metadata link bridges the gap.
+ * {@link spinePortalCuts}: spine station indices after which a portal gap inserted — allows a multi-cell grid step.
+ */
+function validateChain(
+  path: GridCell[] | undefined,
+  map?: GeneratedMap,
+  spinePortalCuts?: readonly number[],
+): string[] {
   const errors: string[] = [];
   if (!path || path.length < 2) {
     errors.push("gridPath missing or too short");
@@ -47,6 +122,7 @@ function validateChain(path: GridCell[] | undefined, map?: GeneratedMap): string
   }
   const bridges = map ? portalBridgeKeys(map) : new Set<string>();
   for (let i = 1; i < path.length; i++) {
+    if (spinePortalCuts?.includes(i - 1)) continue;
     const dx = Math.abs(path[i].x - path[i - 1].x);
     const dz = Math.abs(path[i].z - path[i - 1].z);
     if (dx + dz !== 1 && !bridges.has(`${i - 1}->${i}`)) {
@@ -164,7 +240,14 @@ function validateDoubleRowCurvedPath(
   errors.push(
     ...validateGridPathUniqueOccupancy(spinePath).map((e) => `spine: ${e}`),
   );
-  errors.push(...validateChain(spinePath).map((e) => `spine: ${e}`));
+  const portalCutsRaw = map.debugInfo["portalGapCutStations"];
+  const spinePortalCuts = Array.isArray(portalCutsRaw)
+    ? (portalCutsRaw as number[])
+    : [];
+  const portalCutSet = new Set(spinePortalCuts);
+  errors.push(
+    ...validateChain(spinePath, map, spinePortalCuts).map((e) => `spine: ${e}`),
+  );
   const cellTypes = new Map<string, string>();
   for (let i = 0; i < path.length; i++) {
     if (!Number.isFinite(path[i].x) || !Number.isFinite(path[i].z)) {
@@ -173,6 +256,8 @@ function validateDoubleRowCurvedPath(
     cellTypes.set(`${path[i].x},${path[i].z}`, map.tiles[i]?.tileType ?? "");
   }
   for (let i = 1; i < spinePath.length - 1; i++) {
+    /** Suffix grid shifts apply after portal cuts; spine[c] stays fixed while spine[c+1] moves — skip bend checks that cross that boundary. */
+    if (portalCutSet.has(i - 1) || portalCutSet.has(i)) continue;
     const prev = spinePath[i - 1];
     const cur = spinePath[i];
     const next = spinePath[i + 1];
@@ -259,6 +344,10 @@ export function validateGeneratedMap(
   const path = gridPath;
   if (path && path.length !== map.tiles.length) {
     errors.push("tile count vs gridPath length mismatch");
+  }
+
+  if ((map.portalLinks?.length ?? 0) > 0 && path?.length) {
+    errors.push(...validatePortalRunGridSeparation(map, path));
   }
 
   const b = map.cameraBounds;

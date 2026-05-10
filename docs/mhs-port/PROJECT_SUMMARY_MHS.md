@@ -16,6 +16,7 @@ Abstract overview for engineers planning a **Meta Horizon Engine** port. This do
 | Game loop | `src/core/Game.ts` | Phases (preview camera, ball flight, hole complete, OOB). Maps to components + services + events in MHE |
 | Level source | `src/core/PlayableLevelService.ts` | Builds `GeneratedPlayableLevel`: procgen endpoint vs legacy flag (`USE_PROCGEN_ENDPOINT`) |
 | Procgen | `src/procgen/MapGenerationEndpoint.ts` | Pure TS: seed → `GeneratedMap` → validated |
+| Procgen QA viewer | `src/procgen/bootstrapProcgenDebug.ts`, `ProcgenDebugViewer.ts` | Optional **`?procgenDebug`** URL mode in `main.ts`; doc: [`../PROCGEN_DEBUG.md`](../PROCGEN_DEBUG.md) |
 | Gameplay bridge | `src/level/procgenLevelAdapter.ts` | `GeneratedMap` → `GeneratedLevel` (tiles, surface, rails, hazards specs) |
 | Level assembly | `src/level/LevelBuilder.ts`, `TileKit` | Spawns visuals / rails from `PlacedTile` |
 | Ball physics | `src/gameplay/SimpleBallPhysics.ts` | Planar + gravity + **course surface sampling** + rail capsules |

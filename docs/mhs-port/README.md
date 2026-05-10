@@ -31,4 +31,6 @@ Useful files there include `Best Practices.md`, `TypeScript in MHE2.md`, and the
 ## Related repo docs
 
 - [`../PROCGEN.md`](../PROCGEN.md) — procedural map generation, sockets, validation, adapter
-- Root `README.md` (if present) — build/run for the web prototype
+- [`../PROCGEN_DEBUG.md`](../PROCGEN_DEBUG.md) — procgen **debug viewer** (URLs, toolbar, visual passes)
+- [`../HANDOFF_MESSAGE.md`](../HANDOFF_MESSAGE.md) — short onboarding blurb for new developers
+- [`../../README.md`](../../README.md) — root build/run and doc index
