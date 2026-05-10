@@ -1,3 +1,6 @@
+import { PSX_SKY_BLUE } from "../art/Materials";
+import type { ProcgenLayoutMode } from "../procgen/MapGenerationTypes";
+
 /** Portrait gameplay composition — 9 : 18 (camera + letterboxed viewport) */
 export const GAMEPLAY_ASPECT_WIDTH = 9;
 export const GAMEPLAY_ASPECT_HEIGHT = 18;
@@ -5,8 +8,6 @@ export const GAMEPLAY_ASPECT_HEIGHT = 18;
 /** width / height */
 export const GAMEPLAY_ASPECT =
   GAMEPLAY_ASPECT_WIDTH / GAMEPLAY_ASPECT_HEIGHT;
-
-import { PSX_SKY_BLUE } from "../art/Materials";
 
 /** Scene clear color — matches PSX fantasy sky */
 export const SKY_BLUE = PSX_SKY_BLUE;
@@ -41,12 +42,41 @@ export function isPsxLowResPipelineActive(): boolean {
   return new URLSearchParams(window.location.search).has("psxLowRes");
 }
 
+/**
+ * Procgen debug (`?procgenDebug`): PSX low-res presenter on first load.
+ * URL `?procgenPsxLowRes` or `?psxLowRes` also enables it; the toolbar toggle updates `procgenPsxLowRes`.
+ */
+export const PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT = false;
+
+export function isProcgenDebugPsxLowResPreferred(): boolean {
+  if (typeof window === "undefined") return PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT;
+  const p = new URLSearchParams(window.location.search);
+  if (p.has("procgenPsxLowRes") || p.has("psxLowRes")) return true;
+  return PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT;
+}
+
 /** Exact replay: `?procgenSeed=<HUD seed>`; omit param to roll a new layout on each reload. */
 export function readProcgenSeedUrlOverride(): string | null {
   if (typeof window === "undefined") return null;
   const v = new URLSearchParams(window.location.search).get("procgenSeed");
   const t = v?.trim();
   return t ? t : null;
+}
+
+/**
+ * Optional procgen topology override for QA: `?procgenLayout=single_path` or `double_row_straight`.
+ * Omit param to use the generator default (double-row). Aliases: `single`, `double`, `2row`.
+ */
+export function readProcgenLayoutUrlOverride(): ProcgenLayoutMode | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("procgenLayout");
+  const v = raw?.trim().toLowerCase();
+  if (!v) return null;
+  if (v === "single_path" || v === "single") return "single_path";
+  if (v === "double_row_straight" || v === "double" || v === "2row") {
+    return "double_row_straight";
+  }
+  return null;
 }
 
 /** When true, levels come from the procedural map endpoint + adapter; otherwise legacy LevelGenerator. */
@@ -90,8 +120,8 @@ export const PHYS_SETTLE_SPEED = 0.06;
 export const WALL_RESTITUTION = 0.82;
 /** Downward acceleration (world Y-up) */
 export const GRAVITY = 38;
-/** Upward kick vs planar shot speed — 0 = roll on deck without hop */
-export const SHOT_LOB_RATIO = 0;
+/** Upward kick vs planar shot speed — higher = more lift off the deck on strike */
+export const SHOT_LOB_RATIO = 0.12;
 /** After landing on grass, damp vertical bounce — 0 = no post-landing hop */
 export const GROUND_RESTITUTION_Y = 0;
 /** Out-of-bounds when ball falls this far below the deck */

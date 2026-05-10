@@ -16,6 +16,7 @@ export const PROCGEN_TILE_TO_ASSET: Partial<Record<TileType, AssetKey>> = {
   ramp_left_wall: "tile_ramp_lw",
   start_placeholder: "tile_start_ph",
   hole_placeholder: "tile_hole_ph",
+  dead_end_cap: "tile_hole_ph",
 };
 
 /** Preload these before gameplay so procgen tiles never fall back to legacy meshes mid-load. */

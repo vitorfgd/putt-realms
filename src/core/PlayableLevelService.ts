@@ -11,6 +11,7 @@ import type {
 import { LevelGenerator } from "../level/LevelGenerator";
 import { mapGenerationEndpoint } from "../procgen/MapGenerationEndpoint";
 import {
+  readProcgenLayoutUrlOverride,
   readProcgenSeedUrlOverride,
   USE_PROCGEN_ENDPOINT,
 } from "./Constants";
@@ -236,12 +237,19 @@ function generateCollectibles(
 }
 
 export class PlayableLevelService {
-  private readonly levelGenerator = new LevelGenerator();
+  private levelGenerator: LevelGenerator | null = null;
+
+  private getLegacyGenerator(): LevelGenerator {
+    if (!this.levelGenerator) {
+      this.levelGenerator = new LevelGenerator();
+    }
+    return this.levelGenerator;
+  }
 
   generate(levelIndex: number, previousDifficultyScore?: number): GeneratedPlayableLevel {
     const level = USE_PROCGEN_ENDPOINT
       ? this.generateProcgen(levelIndex, previousDifficultyScore)
-      : this.levelGenerator.generate(levelIndex, { previousDifficultyScore });
+      : this.getLegacyGenerator().generate(levelIndex, { previousDifficultyScore });
     return this.finalizeLevel(level);
   }
 
@@ -251,6 +259,7 @@ export class PlayableLevelService {
   ): GeneratedLevel {
     const config = procgenGameplayConfig(levelIndex);
     const urlSeed = readProcgenSeedUrlOverride();
+    const layoutOverride = readProcgenLayoutUrlOverride();
     const seedPrefix = urlSeed
       ? urlSeed.trim()
       : `putt-${levelIndex}-v2-${getOrCreateLayoutSalt()}`;
@@ -266,6 +275,7 @@ export class PlayableLevelService {
           maxTiles: config.maxTiles,
           allowRamps: config.allowRamps,
           allowCurves: config.allowCurves,
+          ...(layoutOverride ? { layout: layoutOverride } : {}),
         });
         return adaptProcgenMapToGeneratedLevel(procMap, {
           levelIndex,
@@ -281,7 +291,7 @@ export class PlayableLevelService {
       }
     }
 
-    const fallback = this.levelGenerator.generate(levelIndex, {
+    const fallback = this.getLegacyGenerator().generate(levelIndex, {
       previousDifficultyScore,
     });
     fallback.imperfectDifficulty = true;

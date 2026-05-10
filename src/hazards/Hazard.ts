@@ -14,6 +14,8 @@ export interface HazardEnvironmental {
   accelZ: number;
 }
 
+export type PortalTriggerResult = false | "teleport" | "finish";
+
 /**
  * Runtime hazard placed on a course tile. Visuals live under `group`.
  */
@@ -33,7 +35,7 @@ export interface HazardInstance {
   ): void;
 
   /**
-   * Impulses after physics integration — windmill arm, axe blade.
+   * Impulses after physics integration — windmill arms, bumper knockback, etc.
    * @returns true if a hit was registered (feedback).
    */
   resolveImpulses(
@@ -46,6 +48,15 @@ export interface HazardInstance {
    * Bridge gaps — true if ball should count as OOB this frame.
    */
   checkBridgeOob?(ctx: HazardBallContext): boolean;
+
+  /**
+   * Portal triggers — run after physics integration so xz reflects velocity step.
+   * Paired portals mutate {@link HazardBallContext.position}; finish portals complete the level.
+   */
+  tryPortal?(
+    ctx: HazardBallContext,
+    physics: SimpleBallPhysics,
+  ): PortalTriggerResult;
 
   dispose(): void;
 }

@@ -87,6 +87,18 @@ function samplePatch(
   };
 }
 
+/** Highest deck elevation on the course (ramps use their high end). For OOB / “off fairway” checks. */
+export function maxCourseSurfaceHeight(surface: CourseSurface | undefined): number {
+  if (!surface?.patches.length) return 0;
+  let m = -1e9;
+  for (const p of surface.patches) {
+    const top =
+      p.kind === "ramp" ? (p.highY ?? p.y + RAMP_HEIGHT) : p.y;
+    m = Math.max(m, top);
+  }
+  return m;
+}
+
 export function sampleCourseSurface(
   surface: CourseSurface | undefined,
   x: number,

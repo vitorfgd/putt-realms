@@ -8,11 +8,16 @@ import type { GenerateMapRequest, GeneratedMap } from "./MapGenerationTypes";
 import {
   deckCenterWorldFromPivot,
   getTileDefinition,
+  rotateFlatOffset,
   TILE_LENGTH,
 } from "./TileCatalog";
 import {
+  capRotationForLane,
+  centerOffsets,
   generateRandomPath,
   isPortraitReasonable,
+  isTurnStation,
+  laneCellsForDir,
   solveDoubleRowStraightPath,
   solveTilesAlongPath,
 } from "./TilePlacementSolver";
@@ -48,6 +53,142 @@ function difficultyFromWeights(sum: number): number {
 }
 
 const MAX_PORTRAIT_GRID_SPAN = 4;
+const PORTAL_GAP_UNLOCK_LEVEL = 8;
+/** Cardinal spine steps × tile length — world separation after a portal cut (grid cells unchanged). */
+const PORTAL_SEGMENT_GAP_ROWS = 2;
+
+function keyCellGrid(c: GridCell): string {
+  return `${c.x},${c.z}`;
+}
+
+/** Straight strip only — spine runs along x=0 at each z pair index. */
+function syntheticSpineRowMajor(path: GridCell[]): GridCell[] {
+  const pairs = path.length / 2;
+  const spine: GridCell[] = [];
+  for (let z = 0; z < pairs; z++) spine.push({ x: 0, z });
+  return spine;
+}
+
+function travelIntoStation(spine: GridCell[], s: number): { x: number; z: number } {
+  if (s <= 0) {
+    const cur = spine[0]!;
+    const next = spine[1]!;
+    return { x: next.x - cur.x, z: next.z - cur.z };
+  }
+  const cur = spine[s]!;
+  const prev = spine[s - 1]!;
+  return { x: cur.x - prev.x, z: cur.z - prev.z };
+}
+
+function gapWorldFromCutStation(spine: GridCell[], cutStation: number): THREE.Vector3 {
+  const cur = spine[cutStation]!;
+  const next = spine[cutStation + 1]!;
+  const dx = Math.sign(next.x - cur.x);
+  const dz = Math.sign(next.z - cur.z);
+  return new THREE.Vector3(
+    dx * TILE_LENGTH * PORTAL_SEGMENT_GAP_ROWS,
+    0,
+    dz * TILE_LENGTH * PORTAL_SEGMENT_GAP_ROWS,
+  );
+}
+
+function translationBeforeStation(
+  station: number,
+  cutsSorted: readonly number[],
+  spine: GridCell[],
+): THREE.Vector3 {
+  const v = new THREE.Vector3();
+  for (const c of cutsSorted) {
+    if (c < station) v.add(gapWorldFromCutStation(spine, c));
+  }
+  return v;
+}
+
+function repositionDeckTileFromGridCurved(
+  tile: GeneratedMap["tiles"][number],
+  cell: GridCell,
+  gridCx: number,
+  gridCz: number,
+  worldExtra: THREE.Vector3,
+  deckScratch: THREE.Vector3,
+  pivotScratch: THREE.Vector3,
+): void {
+  const def = getTileDefinition(tile.tileType);
+  const elev = tile.position.y;
+  deckScratch.set(
+    (cell.x - gridCx) * TILE_LENGTH,
+    elev,
+    (cell.z - gridCz) * TILE_LENGTH,
+  );
+  rotateFlatOffset(def.pivotOffsetFromDeckOrigin, tile.rotationY, pivotScratch);
+  tile.position.copy(deckScratch).add(pivotScratch).add(worldExtra);
+  tile.anchor.copy(tile.position);
+}
+
+function cloneProcgenTile(
+  src: GeneratedMap["tiles"][number],
+): GeneratedMap["tiles"][number] {
+  return {
+    ...src,
+    position: src.position.clone(),
+    anchor: src.anchor.clone(),
+  };
+}
+
+/** Both lanes at this spine station are ramp tiles (ascending/descending pair row). */
+function isRampLaneStation(
+  byStation: Map<number, number[]>,
+  tiles: GeneratedMap["tiles"],
+  st: number,
+): boolean {
+  const idxs = byStation.get(st);
+  if (!idxs || idxs.length !== 2) return false;
+  const types = idxs.map((i) => tiles[i]!.tileType);
+  return (
+    types.includes("ramp_right_wall") && types.includes("ramp_left_wall")
+  );
+}
+
+/**
+ * Portal exit is station `s+1` (straight pair retargeted to start caps). Cut station `s` is also straight-only.
+ * Still skip when a ramp row is **directly before** the dead-end (`s-1`) or **two stations ahead**
+ * of the cut (`s+2` = first row after the exit): avoids portal exits sitting on ramp boundaries / wrong deck Y.
+ */
+function portalCutRampTopologySafe(
+  s: number,
+  spineLen: number,
+  byStation: Map<number, number[]>,
+  tiles: GeneratedMap["tiles"],
+): boolean {
+  if (s - 1 >= 0 && isRampLaneStation(byStation, tiles, s - 1)) {
+    return false;
+  }
+  if (s + 2 < spineLen && isRampLaneStation(byStation, tiles, s + 2)) {
+    return false;
+  }
+  return true;
+}
+
+function stationEligibleForPortalCut(
+  spine: GridCell[],
+  s: number,
+  byStation: Map<number, number[]>,
+  tiles: GeneratedMap["tiles"],
+): boolean {
+  if (s <= 2 || s >= spine.length - 1) return false;
+  if (isTurnStation(spine, s)) return false;
+  const idxs = byStation.get(s);
+  const idxsNext = byStation.get(s + 1);
+  if (!idxs || idxs.length !== 2 || !idxsNext || idxsNext.length !== 2) {
+    return false;
+  }
+  const types = idxs.map((i) => tiles[i]!.tileType);
+  const typesNext = idxsNext.map((i) => tiles[i]!.tileType);
+  const pairStraight = (tt: typeof types) =>
+    tt.every((t) => t === "straight_right_wall");
+  if (!pairStraight(types) || !pairStraight(typesNext)) return false;
+  return portalCutRampTopologySafe(s, spine.length, byStation, tiles);
+}
 
 interface DifficultyProfile {
   level: number;
@@ -111,7 +252,7 @@ function pickInteriorCount(
   const lo = profile.minInterior;
   const hi = profile.maxInterior;
   const span = hi - lo + 1;
-  let n = lo + Math.floor(rng() * span);
+  const n = lo + Math.floor(rng() * span);
   const cap = Math.max(1, req.maxTiles - 2);
   return Math.min(n, cap);
 }
@@ -125,14 +266,14 @@ function pickInteriorZCount(
   const lo = profile.minInterior;
   const hi = profile.maxInterior;
   const span = hi - lo + 1;
-  let nz = lo + Math.floor(rng() * span);
+  const nz = lo + Math.floor(rng() * span);
   const cap = Math.max(1, Math.floor((req.maxTiles - 4) / 2));
   return Math.min(nz, cap);
 }
 
 function computeStartHoleWorld(
   tiles: GeneratedMap["tiles"],
-  path: GridCell[],
+  _path: GridCell[],
 ): { start: THREE.Vector3; hole: THREE.Vector3 } {
   const first = tiles[0];
   const last = tiles[tiles.length - 1];
@@ -148,24 +289,18 @@ function computeStartHoleWorld(
     last.rotationY,
     defL,
   );
-  const p0 = path[0];
-  const p1 = path[1];
-  const dx = p1.x - p0.x;
-  const dz = p1.z - p0.z;
-  const len = Math.hypot(dx, dz) || 1;
-  const backX = (-dx / len) * TILE_LENGTH * 0.34;
-  const backZ = (-dz / len) * TILE_LENGTH * 0.34;
-  const start = new THREE.Vector3(deck0.x + backX, deck0.y, deck0.z + backZ);
-  // Hole Y reflects the elevation of the final tile (may be above 0 if ramps raised the course).
+  void _path;
+  const start = new THREE.Vector3(deck0.x, deck0.y, deck0.z);
   const hole = new THREE.Vector3(deckL.x, deckL.y, deckL.z);
   return { start, hole };
 }
 
-/** Tee / cup between the two parallel lanes (course runs +world Z). */
+/** Start at midpoint between the two lane decks at station 0; hole at last pair midpoint. */
 function computeStartHoleDoubleRow(
   tiles: GeneratedMap["tiles"],
-  spinePath?: GridCell[],
+  _spinePath?: GridCell[],
 ): { start: THREE.Vector3; hole: THREE.Vector3 } {
+  void _spinePath;
   const pairCenter = (leftIndex: number): THREE.Vector3 => {
     const a = deckCenterWorldFromPivot(
       tiles[leftIndex].position,
@@ -184,34 +319,44 @@ function computeStartHoleDoubleRow(
     );
   };
 
-  const tee = pairCenter(0);
-  const dir =
-    spinePath && spinePath.length >= 2
-      ? new THREE.Vector3(
-          spinePath[1].x - spinePath[0].x,
-          0,
-          spinePath[1].z - spinePath[0].z,
-        ).normalize()
-      : (() => {
-          const next = tiles.length >= 4
-            ? pairCenter(2)
-            : tee.clone().add(new THREE.Vector3(0, 0, 1));
-          const fallback = next.clone().sub(tee);
-          fallback.y = 0;
-          if (fallback.lengthSq() < 1e-6) fallback.set(0, 0, 1);
-          return fallback.normalize();
-        })();
-  const back = TILE_LENGTH * 0.34;
-  const start = new THREE.Vector3(
-    tee.x - dir.x * back,
-    tee.y,
-    tee.z - dir.z * back,
-  );
+  const start = pairCenter(0);
 
   const n = tiles.length;
-  // Hole may be elevated if ramps raised the course before the final strip.
   const hole = pairCenter(n - 2);
   return { start, hole };
+}
+
+/** Every procgen course completes via a finish portal — paired gap portals are optional. */
+function attachFinishPortalMetadata(map: GeneratedMap): GeneratedMap {
+  const layout = map.debugInfo["layout"] as string | undefined;
+  const n = map.tiles.length;
+  if (layout === "double_row_straight" && n >= 2) {
+    const fi = n - 2;
+    return {
+      ...map,
+      finishKind: "portal",
+      finishPortalTileIndex: fi,
+      debugInfo: {
+        ...map.debugInfo,
+        finishKind: "portal",
+        finishPortalTileIndex: fi,
+      },
+    };
+  }
+  if (layout === "single_path" && n >= 1) {
+    const fi = n - 1;
+    return {
+      ...map,
+      finishKind: "portal",
+      finishPortalTileIndex: fi,
+      debugInfo: {
+        ...map.debugInfo,
+        finishKind: "portal",
+        finishPortalTileIndex: fi,
+      },
+    };
+  }
+  return map;
 }
 
 export interface MapGenerationEndpoint {
@@ -226,11 +371,354 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
       return this.generateTutorial(request);
     }
 
+    if (
+      request.levelIndex >= PORTAL_GAP_UNLOCK_LEVEL &&
+      request.layout === "single_path"
+    ) {
+      return this.generatePortalGapSinglePath(request, targetInt);
+    }
+
     if ((request.layout ?? "double_row_straight") === "double_row_straight") {
       return this.generateDoubleRowStraight(request, targetInt);
     }
 
     return this.generateSingleFilePath(request, targetInt);
+  }
+
+  private generatePortalGapSinglePath(
+    request: GenerateMapRequest,
+    targetInt: number,
+  ): GeneratedMap {
+    const base = this.generateSingleFilePath(
+      { ...request, layout: "single_path" },
+      targetInt,
+    );
+    return this.applyPortalGaps(base, request);
+  }
+
+  private applyPortalGaps(map: GeneratedMap, request: GenerateMapRequest): GeneratedMap {
+    const originalPath = map.debugInfo["gridPath"];
+    if (!Array.isArray(originalPath) || originalPath.length !== map.tiles.length) {
+      return map;
+    }
+
+    const rng = mulberry32(hashSeed(`${request.seed}|portal-gaps`));
+    const path = [...(originalPath as GridCell[])];
+    const tiles = [...map.tiles];
+    const candidateCuts: number[] = [];
+    for (let i = 3; i <= tiles.length - 4; i++) {
+      const prev = tiles[i - 1];
+      const cur = tiles[i];
+      const next = tiles[i + 1];
+      if (
+        prev?.tileType === "straight_right_wall" &&
+        cur?.tileType === "straight_right_wall" &&
+        next?.tileType === "straight_right_wall"
+      ) {
+        candidateCuts.push(i);
+      }
+    }
+
+    for (let i = candidateCuts.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [candidateCuts[i], candidateCuts[j]] = [candidateCuts[j]!, candidateCuts[i]!];
+    }
+
+    const desiredCuts = request.levelIndex >= 14 ? 2 : 1;
+    const cuts: number[] = [];
+    for (const candidate of candidateCuts) {
+      if (cuts.every((cut) => Math.abs(cut - candidate) >= 4)) {
+        cuts.push(candidate);
+      }
+      if (cuts.length >= desiredCuts) break;
+    }
+    cuts.sort((a, b) => a - b);
+
+    const removed = new Set(cuts);
+    const oldToNew = new Map<number, number>();
+    const nextPath: GridCell[] = [];
+    const nextTiles: GeneratedMap["tiles"] = [];
+    for (let oldIndex = 0; oldIndex < tiles.length; oldIndex++) {
+      if (removed.has(oldIndex)) continue;
+      oldToNew.set(oldIndex, nextTiles.length);
+      const src = tiles[oldIndex]!;
+      nextTiles.push({
+        ...src,
+        position: src.position.clone(),
+        anchor: src.anchor.clone(),
+      });
+      nextPath.push(path[oldIndex]!);
+    }
+
+    const portalLinks = cuts.flatMap((cut, i) => {
+      const fromTileIndex = oldToNew.get(cut - 1);
+      const toTileIndex = oldToNew.get(cut + 1);
+      if (fromTileIndex === undefined || toTileIndex === undefined) return [];
+      return [{
+        id: `portal-gap-${request.levelIndex}-${i}`,
+        fromTileIndex,
+        toTileIndex,
+      }];
+    });
+
+    const finalTileIndex = nextTiles.length - 1;
+    const lastTile = nextTiles[finalTileIndex]!;
+    const finishDef = getTileDefinition(lastTile.tileType);
+    const finishDeck = deckCenterWorldFromPivot(
+      lastTile.position,
+      lastTile.rotationY,
+      finishDef,
+    );
+
+    const nextMap: GeneratedMap = {
+      ...map,
+      id: `${map.id}-portal`,
+      tiles: nextTiles,
+      holePosition: finishDeck,
+      cameraBounds: computeCameraBoundsFromTiles({ tiles: nextTiles }),
+      portalLinks,
+      finishPortalTileIndex: finalTileIndex,
+      finishKind: "portal",
+      debugInfo: {
+        ...map.debugInfo,
+        layout: "single_path",
+        gridPath: nextPath,
+        portalGaps: cuts,
+        portalLinks,
+        finishPortalTileIndex: finalTileIndex,
+        finishKind: "portal",
+      },
+    };
+
+    const v = validateGeneratedMap(nextMap, nextPath);
+    return v.ok ? nextMap : map;
+  }
+
+  /**
+   * Replaces eligible spine stations with {@link TileType.dead_end_cap} pairs (teleport entrance),
+   * nudges all following tiles in **world space** along the spine forward direction (grid cells
+   * unchanged — works with curves and ramps), retargets the next two-lane station to
+   * {@link TileType.start_placeholder}, and wires portal pairs from dead-end **right** to **left**.
+   */
+  private applyPortalGapsDoubleRow(
+    map: GeneratedMap,
+    request: GenerateMapRequest,
+  ): GeneratedMap {
+    if (request.levelIndex < PORTAL_GAP_UNLOCK_LEVEL) return map;
+    if ((request.layout ?? "double_row_straight") === "single_path") {
+      return map;
+    }
+    if (map.debugInfo["layout"] !== "double_row_straight") return map;
+
+    const originalPath = map.debugInfo["gridPath"];
+    if (!Array.isArray(originalPath) || originalPath.length !== map.tiles.length) {
+      return map;
+    }
+    if (originalPath.length % 2 !== 0) return map;
+
+    const origPath = originalPath as GridCell[];
+    const spineRaw = map.debugInfo["spinePath"];
+    const spine: GridCell[] =
+      Array.isArray(spineRaw) && spineRaw.length >= 2
+        ? (spineRaw as GridCell[])
+        : syntheticSpineRowMajor(origPath);
+
+    if (spine.length < 3) return map;
+
+    const tiles = map.tiles;
+    const rng = mulberry32(hashSeed(`${request.seed}|portal-gaps-2row`));
+
+    const byStation = new Map<number, number[]>();
+    for (let i = 0; i < tiles.length; i++) {
+      const st = tiles[i]?.stationIndex;
+      if (typeof st !== "number") continue;
+      const arr = byStation.get(st) ?? [];
+      arr.push(i);
+      byStation.set(st, arr);
+    }
+    for (const arr of byStation.values()) arr.sort((a, b) => a - b);
+
+    const candidateStations: number[] = [];
+    for (let s = 1; s <= spine.length - 2; s++) {
+      if (!stationEligibleForPortalCut(spine, s, byStation, tiles)) continue;
+      candidateStations.push(s);
+    }
+
+    for (let i = candidateStations.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [candidateStations[i], candidateStations[j]] = [
+        candidateStations[j]!,
+        candidateStations[i]!,
+      ];
+    }
+
+    const desiredCuts = request.levelIndex >= 14 ? 2 : 1;
+    const cuts: number[] = [];
+    for (const s of candidateStations) {
+      if (cuts.every((existing) => Math.abs(existing - s) >= 3)) {
+        cuts.push(s);
+      }
+      if (cuts.length >= desiredCuts) break;
+    }
+    cuts.sort((a, b) => a - b);
+
+    if (cuts.length === 0) return map;
+
+    const cutsSet = new Set(cuts);
+    const { cx: gridCx, cz: gridCz } = centerOffsets(origPath);
+
+    const mergedTiles: GeneratedMap["tiles"] = [];
+    const mergedPath: GridCell[] = [];
+    const portalLinks: NonNullable<GeneratedMap["portalLinks"]> = [];
+
+    let pendingPortalFrom: number | undefined;
+
+    const deckScratch = new THREE.Vector3();
+    const pivotScratch = new THREE.Vector3();
+    const pivotWorld = new THREE.Vector3();
+
+    for (let s = 0; s < spine.length; s++) {
+      const tw = translationBeforeStation(s, cuts, spine);
+      const indices = byStation.get(s);
+      if (!indices?.length) continue;
+
+      if (cutsSet.has(s)) {
+        if (indices.length !== 2) return map;
+        const travel = travelIntoStation(spine, s);
+        const lane = laneCellsForDir(spine[s]!, travel.x, travel.z);
+        const elev =
+          (tiles[indices[0]!]!.position.y + tiles[indices[1]!]!.position.y) / 2;
+        const deadDef = getTileDefinition("dead_end_cap");
+
+        for (let pi = 0; pi < 2; pi++) {
+          const cell = lane[pi]!;
+          const isRight = pi === 1;
+          const rotationY = capRotationForLane(
+            travel.x,
+            travel.z,
+            isRight,
+            "finish",
+          );
+          deckScratch.set(
+            (cell.x - gridCx) * TILE_LENGTH,
+            elev,
+            (cell.z - gridCz) * TILE_LENGTH,
+          );
+          rotateFlatOffset(deadDef.pivotOffsetFromDeckOrigin, rotationY, pivotScratch);
+          pivotWorld.copy(deckScratch).add(pivotScratch).add(tw);
+          mergedTiles.push({
+            id: `${map.id}-dead-s${s}-p${pi}`,
+            tileType: "dead_end_cap",
+            position: pivotWorld.clone(),
+            rotationY,
+            anchor: pivotWorld.clone(),
+            entrySocket: deadDef.entrySocket,
+            exitSocket: deadDef.exitSocket,
+            modelKey: deadDef.modelKey,
+            stationIndex: s,
+          });
+          mergedPath.push({ ...cell });
+        }
+        pendingPortalFrom = mergedTiles.length - 1;
+        continue;
+      }
+
+      const travel = travelIntoStation(spine, s);
+      const lane = laneCellsForDir(spine[s]!, travel.x, travel.z);
+      const leftKey = keyCellGrid(lane[0]!);
+      const rightKey = keyCellGrid(lane[1]!);
+
+      let orderedIndices: number[];
+      if (indices.length === 2) {
+        const li = indices.find((i) => keyCellGrid(origPath[i]!) === leftKey);
+        const ri = indices.find((i) => keyCellGrid(origPath[i]!) === rightKey);
+        orderedIndices =
+          li !== undefined && ri !== undefined ? [li, ri] : [...indices];
+      } else {
+        orderedIndices = [...indices].sort((a, b) => a - b);
+      }
+
+      let needsStartCapForStation = false;
+
+      for (const idx of orderedIndices) {
+        const cell = origPath[idx]!;
+
+        if (
+          pendingPortalFrom !== undefined &&
+          indices.length === 2 &&
+          keyCellGrid(cell) === leftKey
+        ) {
+          portalLinks.push({
+            id: `portal-gap-2row-${request.levelIndex}-${portalLinks.length}`,
+            fromTileIndex: pendingPortalFrom,
+            toTileIndex: mergedTiles.length,
+          });
+          pendingPortalFrom = undefined;
+          needsStartCapForStation = true;
+        }
+
+        const c = cloneProcgenTile(tiles[idx]!);
+
+        if (needsStartCapForStation && indices.length === 2) {
+          const isRight = keyCellGrid(cell) === rightKey;
+          const startDef = getTileDefinition("start_placeholder");
+          c.tileType = "start_placeholder";
+          c.rotationY = capRotationForLane(
+            travel.x,
+            travel.z,
+            isRight,
+            "start",
+          );
+          c.entrySocket = startDef.entrySocket;
+          c.exitSocket = startDef.exitSocket;
+          c.modelKey = startDef.modelKey;
+        }
+
+        repositionDeckTileFromGridCurved(
+          c,
+          cell,
+          gridCx,
+          gridCz,
+          tw,
+          deckScratch,
+          pivotScratch,
+        );
+        c.stationIndex = s;
+        c.id = `${map.id}-s${s}-i${idx}`;
+        mergedTiles.push(c);
+        mergedPath.push(cell);
+      }
+    }
+
+    if (pendingPortalFrom !== undefined) return map;
+    if (portalLinks.length !== cuts.length) return map;
+
+    const dbg = { ...map.debugInfo };
+
+    const finalPairLeft = mergedTiles.length - 2;
+    const { hole } = computeStartHoleDoubleRow(mergedTiles, undefined);
+
+    const nextMap: GeneratedMap = {
+      ...map,
+      id: `${map.id}-portal2r`,
+      tiles: mergedTiles,
+      holePosition: hole,
+      cameraBounds: computeCameraBoundsFromTiles({ tiles: mergedTiles }),
+      portalLinks,
+      finishPortalTileIndex: finalPairLeft,
+      finishKind: "portal",
+      debugInfo: {
+        ...dbg,
+        gridPath: mergedPath,
+        portalGapCutStations: cuts,
+        portalLinks,
+        finishPortalTileIndex: finalPairLeft,
+        finishKind: "portal",
+      },
+    };
+
+    const v = validateGeneratedMap(nextMap, mergedPath);
+    return v.ok ? nextMap : map;
   }
 
   private generateDoubleRowStraight(
@@ -296,7 +784,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
         const finalized = this.finalizeMap(draft, path, targetInt, matched);
 
         if (matched) {
-          return finalized;
+          return this.applyPortalGapsDoubleRow(finalized, request);
         }
 
         if (!best || dist < best.dist) {
@@ -314,10 +802,13 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
         targetDifficulty: targetInt,
         matchedWithinOne: false,
       };
-      return best.map;
+      return this.applyPortalGapsDoubleRow(best.map, request);
     }
 
-    return this.fallbackDoubleRow(request, targetInt);
+    return this.applyPortalGapsDoubleRow(
+      this.fallbackDoubleRow(request, targetInt),
+      request,
+    );
   }
 
   private generateSingleFilePath(
@@ -413,14 +904,17 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
     targetInt: number,
     matched: boolean,
   ): GeneratedMap {
-    map.imperfectDifficulty = !matched;
-    map.debugInfo = {
-      ...map.debugInfo,
-      gridPath: path,
-      targetDifficulty: targetInt,
-      matchedWithinOne: matched,
+    const next: GeneratedMap = {
+      ...map,
+      imperfectDifficulty: !matched,
+      debugInfo: {
+        ...map.debugInfo,
+        gridPath: path,
+        targetDifficulty: targetInt,
+        matchedWithinOne: matched,
+      },
     };
-    return map;
+    return attachFinishPortalMetadata(next);
   }
 
   private generateTutorial(request: GenerateMapRequest): GeneratedMap {
@@ -457,7 +951,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
       if (!v.ok) {
         return this.fallbackDoubleRow(request, 0);
       }
-      return draft;
+      return attachFinishPortalMetadata(draft);
     }
 
     const path: GridCell[] = [
@@ -494,7 +988,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
     if (!v.ok) {
       return this.fallbackCollinear(request, 0);
     }
-    return draft;
+    return attachFinishPortalMetadata(draft);
   }
 
   private fallbackDoubleRow(
@@ -546,7 +1040,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
         cellCountZ,
       },
     };
-    return draft;
+    return attachFinishPortalMetadata(draft);
   }
 
   private fallbackCollinear(
@@ -591,7 +1085,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
         matchedWithinOne: Math.abs(difficulty - targetInt) <= 1,
       },
     };
-    return draft;
+    return attachFinishPortalMetadata(draft);
   }
 }
 

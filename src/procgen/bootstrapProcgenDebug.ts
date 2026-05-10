@@ -1,10 +1,27 @@
 import { assetRegistry } from "../art/AssetRegistry";
 import type { AssetKey } from "../art/AssetRegistry";
+import { isProcgenDebugPsxLowResPreferred } from "../core/Constants";
+
+/** Hazards shown on full-map debug — preload FBX/GLB so instances aren’t empty */
+const HAZARD_DEBUG_PRELOAD: AssetKey[] = [
+  "hazard_windmill",
+  "hazard_fan",
+  "hazard_bridge",
+  "hazard_bumper_mushroom",
+  "hazard_portal_gate",
+  "hazard_boost",
+  "hazard_sandpit",
+];
+import { ISLAND_DECOR_ASSET_KEYS } from "../level/islandDecorScatter";
 import { ProcgenDebugViewer } from "./ProcgenDebugViewer";
 import { PROCGEN_TILE_TO_ASSET } from "./procgenAssetKeys";
 
 const PRELOAD_KEYS: AssetKey[] = Array.from(
-  new Set(Object.values(PROCGEN_TILE_TO_ASSET)),
+  new Set([
+    ...Object.values(PROCGEN_TILE_TO_ASSET),
+    "undermap_island" as AssetKey,
+    ...ISLAND_DECOR_ASSET_KEYS,
+  ]),
 ) as AssetKey[];
 
 /**
@@ -24,10 +41,17 @@ export async function mountProcgenDebug(canvas: HTMLCanvasElement): Promise<void
   hint.innerHTML =
     "<b>Procgen debug</b><br>" +
     "1–5: tile types · <b>G</b>: random map · <b>S</b>: socket helpers<br>" +
-    "<span style='opacity:.85'>Blue = entry · Green = exit · Red = pivot</span>";
+    "<span style='opacity:.85'>Blue = entry · Green = exit · Red = pivot · " +
+    "Generated maps include hazard props (windmill/fan/etc.) when spawned.</span>" +
+    "<br><span style='opacity:.82'><b>Game view</b> adds void clouds like gameplay. " +
+    "<b>PSX low-res</b>: toolbar or <code>?procgenPsxLowRes</code> / <code>?psxLowRes</code>; defaults in Constants (<code>PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT</code>).</span>";
   document.body.appendChild(hint);
 
-  await Promise.all(PRELOAD_KEYS.map((k) => assetRegistry.preloadAsset(k)));
+  await Promise.all(
+    [...PRELOAD_KEYS, ...HAZARD_DEBUG_PRELOAD].map((k) =>
+      assetRegistry.preloadAsset(k),
+    ),
+  );
 
   const toolbar = document.createElement("div");
   toolbar.setAttribute("role", "toolbar");
@@ -75,6 +99,14 @@ export async function mountProcgenDebug(canvas: HTMLCanvasElement): Promise<void
     const url = new URL(location.href);
     url.searchParams.set("procgenSeed", seed);
     url.searchParams.set("procgenDifficulty", difficultyInput.value);
+    if (viewer.getPsxLowResEnabled()) url.searchParams.set("procgenPsxLowRes", "1");
+    history.replaceState(null, "", url);
+  }
+
+  function syncProcgenPsxUrl(enabled: boolean): void {
+    const url = new URL(location.href);
+    if (enabled) url.searchParams.set("procgenPsxLowRes", "1");
+    else url.searchParams.delete("procgenPsxLowRes");
     history.replaceState(null, "", url);
   }
 
@@ -85,6 +117,8 @@ export async function mountProcgenDebug(canvas: HTMLCanvasElement): Promise<void
 
   const viewer = new ProcgenDebugViewer(canvas, {
     onMapGenerated: (map) => updateSeedUi(map.seed),
+    getTargetDifficulty: selectedDifficulty,
+    initialPsxLowRes: isProcgenDebugPsxLowResPreferred(),
   });
   viewer.start();
 
@@ -138,7 +172,86 @@ export async function mountProcgenDebug(canvas: HTMLCanvasElement): Promise<void
     viewer.toggleSocketHelpersFromUi(),
   );
 
+  const psxBtn = document.createElement("button");
+  psxBtn.type = "button";
+  function refreshPsxBtn(): void {
+    const on = viewer.getPsxLowResEnabled();
+    psxBtn.textContent = on ? "PSX low-res ✓" : "PSX low-res";
+    psxBtn.style.cssText = on ? btnPrimary : btnStyle;
+    psxBtn.title = on
+      ? "Using reduced-resolution RT + nearest upscale. Turn off to compare. Tune PSX_LOW_RES_INTERNAL_SCALE / ENABLE_PSX_LOW_RES_PIPELINE in Constants.ts."
+      : "Enable PSX-style low-res pipeline (same path as ?psxLowRes in the main game). URL: ?procgenPsxLowRes or set PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT.";
+  }
+  psxBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    viewer.setPsxLowResEnabled(!viewer.getPsxLowResEnabled());
+    syncProcgenPsxUrl(viewer.getPsxLowResEnabled());
+    refreshPsxBtn();
+  });
+  refreshPsxBtn();
+  toolbar.appendChild(psxBtn);
+
+  /** Above fullscreen WebGL canvas — parent `pointer-events: none`, button receives clicks. */
+  const procgenOverlayUi = document.createElement("div");
+  procgenOverlayUi.id = "procgen-debug-overlay-ui";
+  procgenOverlayUi.style.cssText =
+    "position:fixed;inset:0;pointer-events:none;z-index:2147483646;touch-action:none;";
+
+  let mapOnlyUi = false;
+  const exitCleanBtn = document.createElement("button");
+  exitCleanBtn.type = "button";
+  exitCleanBtn.textContent = "Exit game view";
+  exitCleanBtn.title = "Restore toolbar, hints, debug overlays, sockets (Esc)";
+  exitCleanBtn.style.cssText =
+    "display:none;position:fixed;bottom:14px;right:14px;pointer-events:auto;touch-action:manipulation;" +
+    "cursor:pointer;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.28);" +
+    "background:rgba(25,45,72,.92);color:#f0f6ff;font:13px system-ui,sans-serif;" +
+    "box-shadow:0 4px 14px rgba(0,0,0,.4);z-index:2147483647;";
+  exitCleanBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    leaveMapOnlyUi();
+  });
+
+  function leaveMapOnlyUi(): void {
+    if (!mapOnlyUi) return;
+    mapOnlyUi = false;
+    procgenOverlayUi.setAttribute("aria-hidden", "true");
+    toolbar.style.display = "";
+    hint.style.display = "";
+    exitCleanBtn.style.display = "none";
+    viewer.setMapOnlyScene(false);
+  }
+
+  const mapOnlyBtn = document.createElement("button");
+  mapOnlyBtn.type = "button";
+  mapOnlyBtn.textContent = "Game view";
+  mapOnlyBtn.title =
+    "Game-like view: hide toolbar, hints, procgen overlays (placeholders/labels), and sockets. Tiles and hazards stay. Esc or Exit clean view restores.";
+  mapOnlyBtn.style.cssText = btnStyle;
+  mapOnlyBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (mapOnlyUi) return;
+    mapOnlyUi = true;
+    procgenOverlayUi.setAttribute("aria-hidden", "false");
+    toolbar.style.display = "none";
+    hint.style.display = "none";
+    exitCleanBtn.style.display = "block";
+    viewer.setMapOnlyScene(true);
+  });
+  toolbar.appendChild(mapOnlyBtn);
+
+  procgenOverlayUi.appendChild(exitCleanBtn);
+  procgenOverlayUi.setAttribute("aria-hidden", "true");
   document.body.appendChild(toolbar);
+  document.body.appendChild(procgenOverlayUi);
+
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Escape" && mapOnlyUi) {
+      e.preventDefault();
+      leaveMapOnlyUi();
+    }
+  });
 
   hint.innerHTML +=
     "<br><span style='opacity:.9'>Or use the <b>buttons</b> at the top. Send the visible <b>Seed</b> when a map breaks.</span>";

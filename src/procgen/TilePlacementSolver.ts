@@ -55,7 +55,7 @@ export interface SolverOutcome {
   spinePath?: GridCell[];
 }
 
-function centerOffsets(path: GridCell[]): { cx: number; cz: number } {
+export function centerOffsets(path: GridCell[]): { cx: number; cz: number } {
   let minx = Infinity;
   let maxx = -Infinity;
   let minz = Infinity;
@@ -177,7 +177,7 @@ function cornerRotationForOutsideWalls(
   return Math.PI / 2;
 }
 
-function capRotationForLane(
+export function capRotationForLane(
   dirX: number,
   dirZ: number,
   isRightLane: boolean,
@@ -210,7 +210,7 @@ function countPathTurns(path: readonly GridCell[]): number {
   return turns;
 }
 
-function isTurnStation(path: readonly GridCell[], index: number): boolean {
+export function isTurnStation(path: readonly GridCell[], index: number): boolean {
   return (
     index > 0 &&
     index < path.length - 1 &&
@@ -238,7 +238,7 @@ function addCell(out: Map<string, GridCell>, c: GridCell): void {
   out.set(keyCell(c), c);
 }
 
-function laneCellsForDir(anchor: GridCell, dirX: number, dirZ: number): GridCell[] {
+export function laneCellsForDir(anchor: GridCell, dirX: number, dirZ: number): GridCell[] {
   const rightX = dirZ;
   const rightZ = -dirX;
   return [
@@ -246,6 +246,9 @@ function laneCellsForDir(anchor: GridCell, dirX: number, dirZ: number): GridCell
     { x: anchor.x + rightX, z: anchor.z + rightZ },
   ];
 }
+
+/** World deck Y agreement threshold (see {@link elevationByStation} / ramp rows). */
+const DECK_COPLANAR_EPS = 0.05;
 
 function exposedSides(
   cell: GridCell,
@@ -258,6 +261,76 @@ function exposedSides(
     { x: 0, z: -1 },
   ];
   return sides.filter((s) => !occupied.has(`${cell.x + s.x},${cell.z + s.z}`));
+}
+
+/** Neighbor blocks a side only if occupied and coplanar (same deck Y); ramps / level splits need walls. */
+function exposedSidesCoplanarNeighbors(
+  cell: GridCell,
+  occupied: ReadonlySet<string>,
+  cellStation: Map<string, number>,
+  elevationByStation: readonly number[],
+): { x: number; z: number }[] {
+  const sides = [
+    { x: 1, z: 0 },
+    { x: 0, z: 1 },
+    { x: -1, z: 0 },
+    { x: 0, z: -1 },
+  ];
+  const myStation = cellStation.get(keyCell(cell));
+  const myElev =
+    myStation !== undefined ? elevationByStation[myStation] ?? 0 : 0;
+
+  return sides.filter((s) => {
+    const nk = `${cell.x + s.x},${cell.z + s.z}`;
+    if (!occupied.has(nk)) return true;
+    const ns = cellStation.get(nk);
+    if (ns === undefined) return true;
+    const theirElev = elevationByStation[ns] ?? 0;
+    return Math.abs(myElev - theirElev) > DECK_COPLANAR_EPS;
+  });
+}
+
+/**
+ * Occupied neighbor along grid delta exists and sits on a different deck height than `station`
+ * (grid XZ alone would falsely suggest one continuous bend piece).
+ */
+function occupiedNeighborSplitsDeckY(
+  cell: GridCell,
+  delta: { x: number; z: number },
+  occupiedKeys: ReadonlySet<string>,
+  cellStation: Map<string, number>,
+  elevationByStation: readonly number[],
+  station: number,
+): boolean {
+  const nk = `${cell.x + delta.x},${cell.z + delta.z}`;
+  if (!occupiedKeys.has(nk)) return false;
+  const ns = cellStation.get(nk);
+  if (ns === undefined) return false;
+  const myElev = elevationByStation[station] ?? 0;
+  const theirElev = elevationByStation[ns] ?? 0;
+  return Math.abs(myElev - theirElev) > DECK_COPLANAR_EPS;
+}
+
+const CARDINAL_GRID_DELTAS: readonly { x: number; z: number }[] = [
+  { x: 1, z: 0 },
+  { x: -1, z: 0 },
+  { x: 0, z: 1 },
+  { x: 0, z: -1 },
+];
+
+/** Occupied neighbor's spine station is a ramp row (flat→ramp uses same {@link elevationByStation} entry — can't rely on Y alone). */
+function occupiedNeighborIsRampStation(
+  cell: GridCell,
+  delta: { x: number; z: number },
+  occupiedKeys: ReadonlySet<string>,
+  cellStation: Map<string, number>,
+  rampDirByStation: ReadonlyMap<number, "ascending" | "descending">,
+): boolean {
+  const nk = `${cell.x + delta.x},${cell.z + delta.z}`;
+  if (!occupiedKeys.has(nk)) return false;
+  const ns = cellStation.get(nk);
+  if (ns === undefined) return false;
+  return rampDirByStation.has(ns);
 }
 
 function rotationForSingleWall(side: { x: number; z: number }): number {
@@ -422,11 +495,24 @@ function solveDoubleRowCurvedPath(
 
     for (const c of stationCells.values()) {
       const k = keyCell(c);
-      addCell(occupied, c);
-      if (!cellStation.has(k)) cellStation.set(k, i);
-      if (!cellTravelDir.has(k)) {
-        cellTravelDir.set(k, isTurn ? { x: outX, z: outZ } : { x: inX, z: inZ });
+      const travel = isTurn ? { x: outX, z: outZ } : { x: inX, z: inZ };
+      if (occupied.has(k)) {
+        const existingStation = cellStation.get(k);
+        if (existingStation !== undefined && existingStation !== i) {
+          return null;
+        }
+        const prevTravel = cellTravelDir.get(k);
+        if (
+          prevTravel !== undefined &&
+          (prevTravel.x !== travel.x || prevTravel.z !== travel.z)
+        ) {
+          return null;
+        }
+        continue;
       }
+      occupied.set(k, c);
+      cellStation.set(k, i);
+      cellTravelDir.set(k, travel);
     }
   }
 
@@ -438,11 +524,18 @@ function solveDoubleRowCurvedPath(
   const deckScratch = new THREE.Vector3();
 
   for (const cell of occupied.values()) {
-    const sides = exposedSides(cell, occupiedKeys);
+    let sides = exposedSides(cell, occupiedKeys);
+    if (sides.length === 0) {
+      sides = exposedSidesCoplanarNeighbors(
+        cell,
+        occupiedKeys,
+        cellStation,
+        elevationByStation,
+      );
+    }
     const station = cellStation.get(keyCell(cell)) ?? 0;
     const travel = cellTravelDir.get(keyCell(cell)) ?? { x: 0, z: 1 };
     const role = cellRole.get(keyCell(cell));
-    if (sides.length === 0 && role !== "floor" && role !== "corner") continue;
 
     const baseRotation = Math.atan2(travel.x, travel.z);
     const isStart = station === 0;
@@ -454,20 +547,21 @@ function solveDoubleRowCurvedPath(
     let tileType: TileType;
     let rotationY: number;
 
-    if (role === "floor" && sides.length === 0) {
+    if (isStart || isHole) {
+      tileType = isStart ? "start_placeholder" : "hole_placeholder";
+      const spineAnchor = spinePath[station]!;
+      const lanePair = laneCellsForDir(spineAnchor, travel.x, travel.z);
+      const isRightLane = cell.x === lanePair[1].x && cell.z === lanePair[1].z;
+      rotationY = capRotationForLane(
+        travel.x,
+        travel.z,
+        isRightLane,
+        isStart ? "start" : "finish",
+      );
+    } else if (sides.length === 0) {
+      // Inner bend apex and any fully enclosed lane filler — deck only (no corner mesh/rails).
       tileType = "floor_plain";
       rotationY = baseRotation;
-    } else if (isStart || isHole || role === "corner" || sides.length >= 2) {
-      tileType = isStart
-        ? "start_placeholder"
-        : isHole
-          ? "hole_placeholder"
-          : "convex_right_wall";
-      const cornerWalls = cellCornerWalls.get(keyCell(cell)) ?? [
-        sides[0] ?? primarySide,
-        sides[1] ?? sides[0] ?? primarySide,
-      ];
-      rotationY = cornerRotationForOutsideWalls(cornerWalls[0], cornerWalls[1]);
     } else if (rampDir === "ascending") {
       const right = { x: travel.z, z: -travel.x };
       const isRightWall = vecEq(primarySide.x, primarySide.z, right.x, right.z);
@@ -478,6 +572,46 @@ function solveDoubleRowCurvedPath(
       const isRightWall = vecEq(primarySide.x, primarySide.z, right.x, right.z);
       tileType = isRightWall ? "ramp_left_wall" : "ramp_right_wall";
       rotationY = baseRotation + Math.PI;
+    } else if (role === "corner" || (sides.length >= 2 && role !== "floor")) {
+      const demoteConvexToStraight =
+        CARDINAL_GRID_DELTAS.some((d) =>
+          occupiedNeighborSplitsDeckY(
+            cell,
+            d,
+            occupiedKeys,
+            cellStation,
+            elevationByStation,
+            station,
+          ),
+        ) ||
+        (rampDir === undefined &&
+          CARDINAL_GRID_DELTAS.some((d) =>
+            occupiedNeighborIsRampStation(
+              cell,
+              d,
+              occupiedKeys,
+              cellStation,
+              rampDirByStation,
+            ),
+          ));
+      if (demoteConvexToStraight) {
+        tileType = "straight_right_wall";
+        const spineAnchor = spinePath[station]!;
+        const lanePair = laneCellsForDir(spineAnchor, travel.x, travel.z);
+        const isRightLane =
+          cell.x === lanePair[1].x && cell.z === lanePair[1].z;
+        const outward = isRightLane
+          ? { x: travel.z, z: -travel.x }
+          : { x: -travel.z, z: travel.x };
+        rotationY = rotationForSingleWall(outward);
+      } else {
+        tileType = "convex_right_wall";
+        const cornerWalls = cellCornerWalls.get(keyCell(cell)) ?? [
+          sides[0] ?? primarySide,
+          sides[1] ?? sides[0] ?? primarySide,
+        ];
+        rotationY = cornerRotationForOutsideWalls(cornerWalls[0], cornerWalls[1]);
+      }
     } else {
       tileType = "straight_right_wall";
       rotationY = rotationForSingleWall(primarySide);

@@ -16,6 +16,7 @@ import {
   loadLevelBackgroundTexture,
   resizeLevelBackdropMesh,
 } from "../level/levelBackground";
+import { maxCourseSurfaceHeight } from "../level/courseSurface";
 import type { GeneratedLevel, LevelWorldBounds } from "../level/LevelTypes";
 import { holeCupRadius } from "../level/TileDimensions";
 import { BALL_COSMETIC_BODY_HEX } from "../cosmetics/cosmeticCatalog";
@@ -24,13 +25,8 @@ import { EconomyService } from "../economy/EconomyService";
 import { Hud } from "../ui/Hud";
 import {
   GAMEPLAY_ASPECT,
-  HOLE_ORBIT_DAMP,
-  HOLE_PULL_RADIUS,
-  HOLE_RADIAL_PULL_ACCEL,
   HOLE_SCORE_MAX_SPEED,
   HOLE_SINK_DURATION,
-  HOLE_SWIRL_FADE_DIST,
-  HOLE_SWIRL_PULL_ACCEL,
   MAX_DRAG_WORLD,
   MAX_SHOT_SPEED,
   MIN_DRAG_WORLD,
@@ -202,6 +198,8 @@ export class Game {
   private readonly overlays: GameOverlays;
   private readonly ballWorldScratch = new THREE.Vector3();
   private readonly lastShotPosition = new THREE.Vector3();
+  /** Last lie after the ball fully settled — OOB respawns here (not the pre-stroke tap position). */
+  private readonly lastStoppedLie = new THREE.Vector3();
   private readonly camGameplayPos = new THREE.Vector3();
   private readonly camGameplayTarget = new THREE.Vector3();
   private readonly camPreviewPos = new THREE.Vector3();
@@ -228,6 +226,9 @@ export class Game {
 
   private prevPhase = RunPhase.Booting;
   private stuckTimer = 0;
+  /** Seconds spent in “no tile under the ball” while descending — lost-ball once threshold exceeded */
+  private offCourseLostSeconds = 0;
+  private courseDeckTopY = 0;
   /** True after slow-roll “bad lie” timer triggers free skip for this hole */
   private freeSkipFromStuck = false;
   private coinsToastTimer = 0;
@@ -369,13 +370,12 @@ export class Game {
       if (phase === RunPhase.ResolvingOOB) {
         this.holeStats.oobCount++;
         this.oobTimer = OOB_MESSAGE_DURATION;
+        this.offCourseLostSeconds = 0;
         this.hud.showOutOfBounds();
         this.audio.playNamed("oob");
         this.shotEffects.onOob();
         this.physics.settleHard();
-        this.ball.position.x = this.lastShotPosition.x;
-        this.ball.position.z = this.lastShotPosition.z;
-        this.ball.position.y = this.lastShotPosition.y;
+        this.ball.position.copy(this.lastStoppedLie);
         this.ball.resetVisual();
       }
     });
@@ -532,11 +532,14 @@ export class Game {
       this.physics.setBounds(this.generatedLevel.bounds, oobMaxZ);
     }
     this.physics.setSurface(this.generatedLevel.surface);
+    this.courseDeckTopY = maxCourseSurfaceHeight(this.generatedLevel.surface);
+    this.offCourseLostSeconds = 0;
     this.physics.setRailColliders(this.generatedLevel.railColliders);
     this.shotEffects.setSurface(this.generatedLevel.surface);
 
     this.placeBallAtTee();
     this.lastShotPosition.copy(this.ball.position);
+    this.lastStoppedLie.copy(this.ball.position);
     this.ball.resetVisual();
     this.cameraController.resetForLevel(this.generatedLevel, this.ball.position);
     this.cameraController.updateFog(this.scene);
@@ -925,43 +928,6 @@ export class Game {
    * Radial suck-in + swirl on approach; tangential damping + faded swirl near the cup
    * so the ball spirals in instead of settling into a perpetual orbit.
    */
-  private accumulateHoleWell(
-    env: HazardEnvironmental,
-    ball: THREE.Vector3,
-    holeX: number,
-    holeZ: number,
-    vx: number,
-    vz: number,
-  ): void {
-    const dx = holeX - ball.x;
-    const dz = holeZ - ball.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist < 0.05 || dist > HOLE_PULL_RADIUS) return;
-    const nx = dx / dist;
-    const nz = dz / dist;
-    const tx = -nz;
-    const tz = nx;
-    const u = 1 - dist / HOLE_PULL_RADIUS;
-    const w = u * u;
-
-    const tangVel = vx * tx + vz * tz;
-    const damp = HOLE_ORBIT_DAMP * w;
-    env.accelX -= tx * tangVel * damp;
-    env.accelZ -= tz * tangVel * damp;
-
-    const radial = HOLE_RADIAL_PULL_ACCEL * w;
-    env.accelX += nx * radial;
-    env.accelZ += nz * radial;
-
-    const swirlFade = Math.min(
-      1,
-      (dist / HOLE_SWIRL_FADE_DIST) * (dist / HOLE_SWIRL_FADE_DIST),
-    );
-    const swirl = HOLE_SWIRL_PULL_ACCEL * w * u * swirlFade;
-    env.accelX += tx * swirl;
-    env.accelZ += tz * swirl;
-  }
-
   private tryHoleScore(): boolean {
     const hp = this.generatedLevel.holePosition;
     const dx = this.ball.position.x - hp.x;
@@ -991,7 +957,7 @@ export class Game {
       }
     });
 
-    /** Windmill / axe phase — independent of ball motion */
+    /** Hazard animation phase — independent of ball motion */
     for (const hz of this.hazardInstances) {
       hz.update(deltaSeconds);
     }
@@ -1035,14 +1001,6 @@ export class Game {
       }
 
       const hpWell = this.generatedLevel.holePosition;
-      this.accumulateHoleWell(
-        env,
-        this.ball.position,
-        hpWell.x,
-        hpWell.z,
-        this.physics.velocity.x,
-        this.physics.velocity.z,
-      );
 
       const stepEnv: PhysicsStepEnvironment = {
         frictionScale: env.frictionScale,
@@ -1054,6 +1012,15 @@ export class Game {
         deltaSeconds,
         stepEnv,
       );
+
+      let portalFinished = false;
+      for (const hz of this.hazardInstances) {
+        const portalResult = hz.tryPortal?.(hzCtx, this.physics);
+        if (portalResult === "finish") {
+          portalFinished = true;
+          break;
+        }
+      }
 
       /** Roll whenever the ball is on / near the deck (physics y is contact/bottom) */
       const supportY = this.physics.surfaceHeightAt(
@@ -1113,6 +1080,26 @@ export class Game {
         }
       }
 
+      const deckSample = this.physics.surfaceHeightAt(
+        this.ball.position.x,
+        this.ball.position.z,
+      );
+      const vy = this.physics.velocity.y;
+      let lostOffFairway = false;
+      if (deckSample !== null) {
+        this.offCourseLostSeconds = 0;
+      } else if (
+        this.ball.position.y <= this.courseDeckTopY + 10 &&
+        vy <= 0.55
+      ) {
+        this.offCourseLostSeconds += deltaSeconds;
+        if (this.offCourseLostSeconds >= 0.14) {
+          lostOffFairway = true;
+        }
+      } else {
+        this.offCourseLostSeconds = 0;
+      }
+
       const planarSpd = Math.hypot(
         this.physics.velocity.x,
         this.physics.velocity.z,
@@ -1138,11 +1125,20 @@ export class Game {
         this.stuckTimer = 0;
       }
 
-      if (!res.oob && !bridgeOob && this.tryHoleScore()) {
+      if (portalFinished) {
         this.run.dispatch(RunEvent.HoleScored);
-      } else if (res.oob || bridgeOob) {
+      } else if (
+        !res.oob &&
+        !bridgeOob &&
+        !lostOffFairway &&
+        this.generatedLevel.finishKind !== "portal" &&
+        this.tryHoleScore()
+      ) {
+        this.run.dispatch(RunEvent.HoleScored);
+      } else if (res.oob || bridgeOob || lostOffFairway) {
         this.run.dispatch(RunEvent.OutOfBounds);
       } else if (this.physics.isSettled()) {
+        this.lastStoppedLie.copy(this.ball.position);
         this.run.dispatch(RunEvent.BallSettled);
       }
     } else if (phase === RunPhase.LevelComplete) {

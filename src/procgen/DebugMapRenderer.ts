@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { HazardSpawnSpec } from "../level/LevelTypes";
 import {
   deckCenterWorldFromPivot,
   getTileDefinition,
@@ -19,7 +20,28 @@ const TYPE_COLOR_HEX: Record<TileType, number> = {
   floor_plain: 0x6ecf7a,
   start_placeholder: 0xffffff,
   hole_placeholder: 0x222222,
+  dead_end_cap: 0xff8844,
 };
+
+function obstacleLineForTile(
+  specs: readonly HazardSpawnSpec[] | undefined,
+  tileIndex: number,
+): string | undefined {
+  if (!specs?.length) return undefined;
+  const parts: string[] = [];
+  for (const h of specs) {
+    if (h.tileIndex !== tileIndex) continue;
+    let line = h.kind;
+    if (h.kind === "portal_gate" && h.portalRole) {
+      line += ` (${h.portalRole})`;
+    }
+    if (h.kind === "fan") {
+      line += h.fanSign === -1 ? " −" : " +";
+    }
+    parts.push(line);
+  }
+  return parts.length > 0 ? parts.join(", ") : undefined;
+}
 
 function shortTileType(type: TileType): string {
   switch (type) {
@@ -39,18 +61,24 @@ function shortTileType(type: TileType): string {
       return "start_placeholder";
     case "hole_placeholder":
       return "hole_placeholder";
+    case "dead_end_cap":
+      return "dead_end_cap";
   }
 }
 
-function createTileLabelSprite(coord: string, type: TileType): THREE.Sprite {
+function createTileLabelSprite(
+  coord: string,
+  type: TileType,
+  obstacleLine?: string,
+): THREE.Sprite {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
-  canvas.height = 160;
+  canvas.height = obstacleLine ? 216 : 160;
   const ctx = canvas.getContext("2d");
   if (ctx) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
-    ctx.roundRect(10, 16, 492, 128, 16);
+    ctx.roundRect(10, 16, 492, obstacleLine ? 184 : 128, 16);
     ctx.fill();
     ctx.strokeStyle = "#e8f4ff";
     ctx.lineWidth = 4;
@@ -59,10 +87,17 @@ function createTileLabelSprite(coord: string, type: TileType): THREE.Sprite {
     ctx.font = "bold 42px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(coord, 256, 58);
+    ctx.fillText(coord, 256, 54);
     ctx.fillStyle = "#b8ffcb";
     ctx.font = "bold 28px sans-serif";
-    ctx.fillText(shortTileType(type), 256, 108);
+    ctx.fillText(shortTileType(type), 256, 100);
+    if (obstacleLine) {
+      ctx.fillStyle = "#ffd48a";
+      ctx.font = "bold 24px sans-serif";
+      const o =
+        obstacleLine.length > 44 ? `${obstacleLine.slice(0, 42)}…` : obstacleLine;
+      ctx.fillText(o, 256, 148);
+    }
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -72,7 +107,7 @@ function createTileLabelSprite(coord: string, type: TileType): THREE.Sprite {
     depthTest: false,
   });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(6.2, 1.95, 1);
+  sprite.scale.set(6.2, obstacleLine ? 2.55 : 1.95, 1);
   sprite.renderOrder = 1100;
   return sprite;
 }
@@ -80,7 +115,10 @@ function createTileLabelSprite(coord: string, type: TileType): THREE.Sprite {
 /**
  * Builds a group of colored slabs + poles at each tile **deck** center (matches gameplay root placement).
  */
-export function createDebugPlaceholderGroup(map: GeneratedMap): THREE.Group {
+export function createDebugPlaceholderGroup(
+  map: GeneratedMap,
+  hazardSpecs?: readonly HazardSpawnSpec[],
+): THREE.Group {
   const root = new THREE.Group();
   root.name = "ProcgenDebugPlaceholders";
   const gridPath = Array.isArray(map.debugInfo["gridPath"])
@@ -120,7 +158,8 @@ export function createDebugPlaceholderGroup(map: GeneratedMap): THREE.Group {
     const coord = cell
       ? `(${cell.x},${cell.z})`
       : `#${i}`;
-    const label = createTileLabelSprite(coord, t.tileType);
+    const obstacle = obstacleLineForTile(hazardSpecs, i);
+    const label = createTileLabelSprite(coord, t.tileType, obstacle);
     label.position.set(deck.x, deck.y + 2.25, deck.z);
     label.name = `dbg_label_${coord}_${t.tileType}`;
     root.add(label);

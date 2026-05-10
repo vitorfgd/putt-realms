@@ -171,7 +171,7 @@ export function createBackgroundFloatingIslands(level: GeneratedLevel): THREE.Gr
     let placed: THREE.Object3D | null = null;
 
     for (let attempt = 0; attempt < 64 && !placed; attempt++) {
-      let ang = rng() * Math.PI * 2;
+      const ang = rng() * Math.PI * 2;
       if (
         !usedAngles.every((u) => angularDist(ang, u) >= minAngleSep)
       ) {

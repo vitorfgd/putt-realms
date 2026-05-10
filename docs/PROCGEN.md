@@ -1,7 +1,7 @@
 # Putt Realms — Procedural Generation Technical Reference
 
 > **Living document.** Update this file whenever a procgen file changes.  
-> Last updated: 2026-05-02 (procgen playable integration + course-surface physics)
+> Last updated: 2026-05-09 (invariants doc + curved double-row overlap rejection + hazards on elevated decks)
 
 ---
 
@@ -18,6 +18,7 @@
 7. [Model Loading Pipeline](#7-model-loading-pipeline)
 8. [Socket System](#8-socket-system)
 9. [Validation](#9-validation)
+   - 9.1 [Invariants and edge cases](#91-invariants-and-edge-cases)
 10. [Adapter — Procgen → Gameplay](#10-adapter--procgen--gameplay)
 11. [Debug Tooling](#11-debug-tooling)
 12. [File Map](#12-file-map)
@@ -40,7 +41,8 @@ GenerateMapRequest
 MapGenerationEndpoint.generateMap()
       │
       ├─ double_row_straight ──► solveDoubleRowStraightPath()
-      │                               └─ PlacedTile[] (pivot world positions)
+      │                               ├─ straight strips: row-major (0,z),(1,z)
+      │                               └─ curved spine (allowCurves): solveDoubleRowCurvedPath()
       │
       └─ single_path ──────────► generateRandomPath()
                                       └─ solveTilesAlongPath()
@@ -65,8 +67,11 @@ LevelBuilder.buildInto()  →  TileKit.buildTileGroup()  →  Three.js scene
 
 `Game.loadLevel()` now treats procgen as the primary level source when
 `USE_PROCGEN_ENDPOINT=true`. Gameplay uses deterministic seeds in the form
-`putt-${levelIndex}-v2`; if procgen validation fails, the game retries deterministic retry
-suffixes before falling back to the legacy `LevelGenerator` and marking the level imperfect.
+`putt-${levelIndex}-v2-${layoutSalt}` (per page load; override with `?procgenSeed=`).
+Topology override for QA: `?procgenLayout=single_path` or `double_row_straight` (aliases:
+`single`, `double`, `2row` — see `readProcgenLayoutUrlOverride` in `Constants.ts`). If the
+adapter throws, the game retries deterministic `-retry-N` suffixes (`PROCGEN_RETRY_COUNT`)
+before falling back to the legacy `LevelGenerator` and marking the level imperfect.
 
 The gameplay adapter emits a `CourseSurface` alongside the rendered tiles:
 - flat patches for straight/corner/start/hole/floor tiles,
@@ -516,6 +521,64 @@ PosX face  → (+halfWidth, y, 0)
 Camera bounds (`computeCameraBoundsFromTiles`) are computed from rotated tile footprints
 plus a `TILE_LENGTH × 0.25` padding on each side.
 
+**Curved double-row** (`debugInfo.spinePath` present): `validateDoubleRowCurvedPath()` also
+checks spine chain integrity and, at each spine corner, expects matching `floor_plain` on the
+inner apex cell and `convex_right_wall` on the outer apex cell.
+
+### 9.1 Invariants and edge cases
+
+**Modes and dispatch**
+
+- **Tutorial** (`levelIndex === 1`): short fixed layout; difficulty 0.
+- **Default layout** (`request.layout` omitted): `double_row_straight` — either parallel strips
+  along +Z or a curved centerline when `allowCurves` is true.
+- **Alternate layout**: `single_path` — one tile wide; uses `generateRandomPath()` →
+  `solveTilesAlongPath()`.
+- **Gameplay gates** (`PlayableLevelService.procgenGameplayConfig`): progression 1–20 maps to
+  `maxTiles`, `allowCurves` (level ≥ 2), `allowRamps` (level ≥ 3). `targetDifficulty` passed to
+  the endpoint is that progression level; internal 0–10 score is derived from tile difficulty
+  weights.
+
+**Search and acceptance**
+
+- Non-tutorial generation searches up to **30 × 40** candidate/retry pairs per mode.
+- Reported difficulty is `clamp(round(sumDifficultyWeights / 2), 0, 10)` vs `clamp(round(targetDifficulty), 0, 10)`.
+- Maps within **±1** of the target score are accepted as **matched**; otherwise the closest
+  candidate is kept with `imperfectDifficulty`. Hard fallbacks (`fallbackDoubleRow`,
+  `fallbackCollinear`) force a valid layout if no candidate validates.
+
+**Single-path portrait cap**
+
+- `isPortraitReasonable(path, MAX_PORTRAIT_GRID_SPAN)` rejects paths whose horizontal grid span
+  exceeds **4** units (`MapGenerationEndpoint`, `TilePlacementSolver`) so tall portrait cameras
+  are not absurdly wide.
+
+**Curved double-row geometry vs “two lanes everywhere”**
+
+- The spine is a **cardinal self-avoiding** walk (`generateSinglePath` in `pathGen.ts`).
+- Each spine vertex expands to **two lane cells** perpendicular to travel, plus extra cells at
+  corners (inner apex `floor_plain`, outer `convex_right_wall`, side straights, diagonal).
+- The **inner apex** of a tight turn is often a **single** shared floor cell — not two parallel
+  fairway strips through that cell. Double-width playable corridor applies along straight legs
+  and through the composed corner patch; widening the inner apex to two full lanes would need
+  new tile templates and solver rules (not current scope).
+
+**Curved double-row grid overlap**
+
+- If two spine stations would assign the **same grid cell** `(x,z)` to different station indices,
+  `solveDoubleRowCurvedPath` **rejects** that solve (`null`) so retries pick another spine.
+  First-writer-wins merging previously produced inconsistent `stationIndex` / travel metadata.
+
+**Grid path uniqueness**
+
+- Validators require **no duplicate** `(x,z)` along `gridPath` for chain layouts; straight
+  double-row enforces row-major pairs `(0,z),(1,z)` without duplication.
+
+**Adapter / hazards on ramps**
+
+- Elevated tiles set `tile.worldY` from deck height. Hazard visuals and hit tests use that deck
+  Y so obstacles align with ramp rows — see `createHazardInstances` + individual hazard classes.
+
 ---
 
 ## 10. Adapter — Procgen → Gameplay
@@ -536,8 +599,8 @@ Key mapping:
 | `concave_right_wall` | `"corner"` |
 
 World positions are recovered via `deckCenterWorldFromPivot()` and stored as
-`tile.worldX / tile.worldZ`.  `LevelBuilder.buildInto()` places each tile's piece group
-at `(worldX, 0, worldZ)` with `rotation.y = rotationY`.
+`tile.worldX / tile.worldZ` (and `tile.worldY` when the deck is elevated). `LevelBuilder.buildInto()`
+places each tile's piece group at `(worldX, worldY ?? 0, worldZ)` with `rotation.y = rotationY`.
 
 `assetKeyOverride` carries the procgen model key through to `TileKit.tryAttachTileModel()`
 so the FBX art is used instead of procedural geometry.

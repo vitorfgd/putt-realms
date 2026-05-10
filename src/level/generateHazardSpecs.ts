@@ -1,13 +1,9 @@
 import { hazardWeight, type HazardKind } from "../hazards/HazardTypes";
 import type { HazardSpawnSpec, PlacedTile } from "./LevelTypes";
 
-const ALL_KINDS: HazardKind[] = [
-  "windmill",
-  "sandpit",
-  "fan",
-  "bridge",
-  "axe",
-  "boost",
+/** Hazards chosen randomly on eligible tiles (excludes paired portal_gate). */
+const SCATTER_KINDS: HazardKind[] = [
+  "bumper_mushroom",
 ];
 
 function shuffleInPlace<T>(arr: T[], rng: () => number): void {
@@ -17,15 +13,26 @@ function shuffleInPlace<T>(arr: T[], rng: () => number): void {
   }
 }
 
-function pickKind(rng: () => number): HazardKind {
-  return ALL_KINDS[Math.floor(rng() * ALL_KINDS.length)];
+function pickScatterKind(rng: () => number): HazardKind {
+  return SCATTER_KINDS[Math.floor(rng() * SCATTER_KINDS.length)];
+}
+
+function stationOrIndex(tiles: readonly PlacedTile[], tileIndex: number): number {
+  const s = tiles[tileIndex]?.stationIndex;
+  return typeof s === "number" ? s : tileIndex;
 }
 
 /**
- * Hazard meshes assume a single straight lane along tile-local +Z.
- * Corner/curve tiles are an L — the same layout blocks the wrong leg or the bend.
+ * Tiles where a one-cell footprint hazard can sit.
+ *
+ * Rules:
+ * - Type `straight` only (hazard meshes assume a straight fairway strip).
+ * - Not ramp/cap/elbow (`hazardSafe !== false`; ramps set `hazardSafe: false`).
+ * - Skip tiles near start/hole along station ordering (see station min/max guard).
  */
-function eligibleStraightTileIndices(tiles: readonly PlacedTile[]): number[] {
+export function eligibleTileIndicesForHazards(
+  tiles: readonly PlacedTile[],
+): number[] {
   const out: number[] = [];
   const stationValues = tiles
     .map((tile) => tile.stationIndex)
@@ -51,8 +58,28 @@ function eligibleStraightTileIndices(tiles: readonly PlacedTile[]): number[] {
   return out;
 }
 
+function tryPickPortalPairIndices(
+  eligible: readonly number[],
+  tiles: readonly PlacedTile[],
+  rng: () => number,
+): [number, number] | null {
+  if (eligible.length < 2) return null;
+  for (let attempt = 0; attempt < 55; attempt++) {
+    const i = eligible[Math.floor(rng() * eligible.length)];
+    const j = eligible[Math.floor(rng() * eligible.length)];
+    if (i === j) continue;
+    if (Math.abs(i - j) < 2) continue;
+    const si = stationOrIndex(tiles, i);
+    const sj = stationOrIndex(tiles, j);
+    if (Math.abs(si - sj) < 3) continue;
+    return [i, j];
+  }
+  return null;
+}
+
 /**
- * @see user rules: no trap on first tile after start, not on hole; count caps by level
+ * Level 1: none. Otherwise scatter hazards on eligible straights; sometimes adds a paired
+ * portal pair on higher levels (counts toward the same placement budget).
  */
 export function generateHazardSpecs(
   levelIndex: number,
@@ -61,35 +88,69 @@ export function generateHazardSpecs(
 ): HazardSpawnSpec[] {
   if (levelIndex === 1) return [];
 
-  const eligible = eligibleStraightTileIndices(tiles);
+  const eligible = eligibleTileIndicesForHazards(tiles);
   if (eligible.length === 0) return [];
 
-  let count = 0;
+  let maxH = 2;
+  if (levelIndex >= 10) maxH = 3;
+  if (levelIndex >= 16) maxH = 4;
+  maxH = Math.min(maxH, eligible.length);
+
+  let budget: number;
   if (levelIndex >= 2 && levelIndex <= 4) {
-    count = rng() < 0.58 ? 1 : 0;
+    budget = rng() < 0.58 ? 1 : 0;
   } else {
-    let maxH = 2;
-    if (levelIndex >= 10) maxH = 3;
-    if (levelIndex >= 16) maxH = 4;
-    maxH = Math.min(maxH, eligible.length);
     const roll = Math.ceil(rng() * maxH);
-    count = Math.max(1, roll);
+    budget = Math.max(1, roll);
   }
 
-  count = Math.min(count, eligible.length);
-  if (count === 0) return [];
+  const used = new Set<number>();
+  const specs: HazardSpawnSpec[] = [];
 
-  shuffleInPlace(eligible, rng);
-  const chosen = eligible.slice(0, count);
+  const portalOk =
+    levelIndex >= 8 && eligible.length >= 6 && rng() < 0.36 && budget >= 2;
+  if (portalOk) {
+    const pair = tryPickPortalPairIndices(eligible, tiles, rng);
+    if (pair) {
+      const portalPairId = `pg-${levelIndex}-${Math.floor(rng() * 1e9)}`;
+      const w = hazardWeight("portal_gate");
+      specs.push({
+        id: `hz-${levelIndex}-${pair[0]}-port-a`,
+        kind: "portal_gate",
+        tileIndex: pair[0],
+        weight: w,
+        portalPairId,
+        portalRole: "a",
+      });
+      specs.push({
+        id: `hz-${levelIndex}-${pair[1]}-port-b`,
+        kind: "portal_gate",
+        tileIndex: pair[1],
+        weight: w,
+        portalPairId,
+        portalRole: "b",
+      });
+      used.add(pair[0]);
+      used.add(pair[1]);
+      budget -= 2;
+    }
+  }
 
-  return chosen.map((tileIndex, i) => {
-    const kind = pickKind(rng);
-    return {
-      id: `hz-${levelIndex}-${tileIndex}-${i}`,
+  const pool = eligible.filter((i) => !used.has(i));
+  shuffleInPlace(pool, rng);
+
+  const scatterCount = Math.min(Math.max(0, budget), pool.length);
+  for (let k = 0; k < scatterCount; k++) {
+    const tileIndex = pool[k];
+    const kind = pickScatterKind(rng);
+    specs.push({
+      id: `hz-${levelIndex}-${tileIndex}-${specs.length}`,
       kind,
       tileIndex,
       weight: hazardWeight(kind),
       fanSign: (rng() > 0.5 ? 1 : -1) as 1 | -1,
-    };
-  });
+    });
+  }
+
+  return specs;
 }

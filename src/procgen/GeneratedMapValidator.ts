@@ -17,24 +17,40 @@ function isFiniteVec(v: { x: number; y: number; z: number }): boolean {
 
 const MAX_AXIS_SPAN = 800;
 
-function validateChain(path: GridCell[] | undefined): string[] {
+/** Belt-and-suspenders: each fairway cell appears at most once in gridPath. */
+function validateGridPathUniqueOccupancy(path: GridCell[] | undefined): string[] {
+  const errors: string[] = [];
+  if (!path?.length) return errors;
+  const seen = new Set<string>();
+  for (let i = 0; i < path.length; i++) {
+    const k = `${path[i].x},${path[i].z}`;
+    if (seen.has(k)) errors.push(`duplicate gridPath cell ${k}`);
+    seen.add(k);
+  }
+  return errors;
+}
+
+function portalBridgeKeys(map: GeneratedMap): Set<string> {
+  const out = new Set<string>();
+  for (const link of map.portalLinks ?? []) {
+    out.add(`${link.fromTileIndex}->${link.toTileIndex}`);
+  }
+  return out;
+}
+
+/** Cardinal-adjacent steps only, unless a portal metadata link bridges the gap. */
+function validateChain(path: GridCell[] | undefined, map?: GeneratedMap): string[] {
   const errors: string[] = [];
   if (!path || path.length < 2) {
     errors.push("gridPath missing or too short");
     return errors;
   }
-  const seen = new Set<string>();
-  for (let i = 0; i < path.length; i++) {
-    const k = `${path[i].x},${path[i].z}`;
-    if (seen.has(k)) errors.push(`duplicate grid cell ${k}`);
-    seen.add(k);
-    if (i > 0) {
-      const dx = Math.abs(path[i].x - path[i - 1].x);
-      const dz = Math.abs(path[i].z - path[i - 1].z);
-      const manhattan = dx + dz;
-      if (manhattan !== 1) {
-        errors.push(`non-adjacent chain step at index ${i}`);
-      }
+  const bridges = map ? portalBridgeKeys(map) : new Set<string>();
+  for (let i = 1; i < path.length; i++) {
+    const dx = Math.abs(path[i].x - path[i - 1].x);
+    const dz = Math.abs(path[i].z - path[i - 1].z);
+    if (dx + dz !== 1 && !bridges.has(`${i - 1}->${i}`)) {
+      errors.push(`non-adjacent chain step at index ${i}`);
     }
   }
   return errors;
@@ -70,6 +86,64 @@ function validateDoubleRowStraightPath(path: GridCell[] | undefined): string[] {
   return errors;
 }
 
+/**
+ * Double-row course with missing grid rows bridged by {@link GeneratedMap.portalLinks}.
+ * Pair index does **not** equal grid z when rows were removed; z must increase monotonically.
+ */
+function validateDoubleRowStraightPathWithPortalGaps(
+  path: GridCell[] | undefined,
+  map: GeneratedMap,
+): string[] {
+  const errors: string[] = [];
+  if (!path || path.length < 4) {
+    errors.push("double-row path missing or too short");
+    return errors;
+  }
+  if (path.length % 2 !== 0) {
+    errors.push("double-row path must have even length");
+    return errors;
+  }
+  const bridges = portalBridgeKeys(map);
+  const seen = new Set<string>();
+  const pairs = path.length / 2;
+  let prevZ: number | null = null;
+
+  for (let zi = 0; zi < pairs; zi++) {
+    const a = path[zi * 2];
+    const b = path[zi * 2 + 1];
+    if (!a || !b) continue;
+
+    if (a.x !== 0 || b.x !== 1 || a.z !== b.z) {
+      errors.push(
+        `double-row pair ${zi}: expected (0,z)(1,z), got (${a.x},${a.z}) (${b.x},${b.z})`,
+      );
+    }
+    const z = a.z;
+    for (const p of [a, b]) {
+      const k = `${p.x},${p.z}`;
+      if (seen.has(k)) errors.push(`duplicate grid cell ${k}`);
+      seen.add(k);
+    }
+
+    if (prevZ !== null) {
+      const dz = z - prevZ;
+      if (dz < 1) {
+        errors.push(`double-row: grid z must increase between pairs (${prevZ} → ${z})`);
+      } else if (dz >= 2) {
+        const iFrom = zi * 2 - 1;
+        const iTo = zi * 2;
+        if (!bridges.has(`${iFrom}->${iTo}`)) {
+          errors.push(
+            `double-row: missing portal bridge across removed rows (${prevZ} → ${z}) at path indices ${iFrom}→${iTo}`,
+          );
+        }
+      }
+    }
+    prevZ = z;
+  }
+  return errors;
+}
+
 function validateDoubleRowCurvedPath(
   path: GridCell[] | undefined,
   spinePath: GridCell[] | undefined,
@@ -87,6 +161,9 @@ function validateDoubleRowCurvedPath(
   if (path.length < spinePath.length || path.length > spinePath.length * 4) {
     errors.push("double-row tile path has an invalid number of occupied cells");
   }
+  errors.push(
+    ...validateGridPathUniqueOccupancy(spinePath).map((e) => `spine: ${e}`),
+  );
   errors.push(...validateChain(spinePath).map((e) => `spine: ${e}`));
   const cellTypes = new Map<string, string>();
   for (let i = 0; i < path.length; i++) {
@@ -116,8 +193,10 @@ function validateDoubleRowCurvedPath(
     const outer = turnsLeft ? diagonal : cur;
     const innerKey = `${inner.x},${inner.z}`;
     const outerKey = `${outer.x},${outer.z}`;
-    if (cellTypes.get(innerKey) !== "floor_plain") {
-      errors.push(`turn at spine ${i}: missing inner floor_plain at ${innerKey}`);
+    const innerType = cellTypes.get(innerKey);
+    const expectedInner = innerType === "floor_plain";
+    if (!expectedInner) {
+      errors.push(`turn at spine ${i}: missing inner floor fill at ${innerKey}`);
     }
     if (cellTypes.get(outerKey) !== "convex_right_wall") {
       errors.push(`turn at spine ${i}: missing outer convex_right_wall at ${outerKey}`);
@@ -134,13 +213,27 @@ export function validateGeneratedMap(
 
   const starts = map.tiles.filter((t) => t.tileType === "start_placeholder");
   const holes = map.tiles.filter((t) => t.tileType === "hole_placeholder");
+  const portalFinish = map.finishKind === "portal";
   if (starts.length < 1) errors.push("need at least one start tile");
-  if (holes.length < 1) errors.push("need at least one hole tile");
+  if (!portalFinish && holes.length < 1) errors.push("need at least one hole tile");
+  if (portalFinish) {
+    const i = map.finishPortalTileIndex;
+    if (i === undefined || !map.tiles[i]) {
+      errors.push("portal finish map needs a valid finishPortalTileIndex");
+    }
+  }
 
   for (const t of map.tiles) {
     if (!isFiniteVec(t.position)) errors.push(`NaN tile position ${t.id}`);
     if (!Number.isFinite(t.rotationY)) errors.push(`NaN rotation ${t.id}`);
   }
+  for (const link of map.portalLinks ?? []) {
+    if (!map.tiles[link.fromTileIndex] || !map.tiles[link.toTileIndex]) {
+      errors.push(`invalid portal link indices ${link.id}`);
+    }
+  }
+
+  errors.push(...validateGridPathUniqueOccupancy(gridPath));
 
   const layout = map.debugInfo["layout"] as string | undefined;
   if (layout === "double_row_straight") {
@@ -149,11 +242,18 @@ export function validateGeneratedMap(
       errors.push(
         ...validateDoubleRowCurvedPath(gridPath, spinePath as GridCell[], map),
       );
+    } else if (
+      map.finishKind === "portal" ||
+      (map.portalLinks?.length ?? 0) > 0
+    ) {
+      errors.push(
+        ...validateDoubleRowStraightPathWithPortalGaps(gridPath, map),
+      );
     } else {
       errors.push(...validateDoubleRowStraightPath(gridPath));
     }
   } else {
-    errors.push(...validateChain(gridPath));
+    errors.push(...validateChain(gridPath, map));
   }
 
   const path = gridPath;
@@ -184,10 +284,10 @@ export function computeCameraBoundsFromTiles(
   map: Pick<GeneratedMap, "tiles">,
 ): Box3Like {
   let minX = Infinity;
-  let minY = -4;
+  const minY = -4;
   let minZ = Infinity;
   let maxX = -Infinity;
-  let maxY = 8;
+  const maxY = 8;
   let maxZ = -Infinity;
 
   for (const t of map.tiles) {

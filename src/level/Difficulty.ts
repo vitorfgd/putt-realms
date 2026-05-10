@@ -1,13 +1,6 @@
 import type { PlacedTile } from "./LevelTypes";
 import { isCollinearStraight, type GridCell } from "./pathGen";
 
-/** Legacy tone buckets (optional UI / analytics) */
-export enum DifficultyBand {
-  Tutorial = "Tutorial",
-  Normal = "Normal",
-  Hard = "Hard",
-}
-
 export const TILE_SHAPE_WEIGHT = {
   /** straight / square */
   square: 1.0,
@@ -54,12 +47,6 @@ export function difficultyFromCourseMetrics(m: CourseMetrics): number {
 
 function clampInt(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
-}
-
-export function bandFromScore(score: number): DifficultyBand {
-  if (score <= 3) return DifficultyBand.Tutorial;
-  if (score <= 7) return DifficultyBand.Normal;
-  return DifficultyBand.Hard;
 }
 
 /**

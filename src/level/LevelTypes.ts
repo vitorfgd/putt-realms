@@ -10,6 +10,21 @@ export interface HazardSpawnSpec {
   weight: number;
   /** Only for fan kind */
   fanSign?: 1 | -1;
+  /** Paired portal gates share this id (exactly two specs per pair). */
+  portalPairId?: string;
+  /** Which endpoint of the pair this tile is — partners use the opposite role. */
+  portalRole?: "a" | "b";
+  /** Finish portals complete the level instead of teleporting to a partner. */
+  portalMode?: "pair" | "finish";
+  /**
+   * World-space portal root XZ (lane midpoint between paired tiles). When set, overrides tile deck origin for placement / triggers.
+   */
+  portalSpawnWorldX?: number;
+  portalSpawnWorldZ?: number;
+  /** Deck height for portal root when using {@link portalSpawnWorldX} / {@link portalSpawnWorldZ}. */
+  portalSpawnDeckY?: number;
+  /** World Y rotation (radians) for portal mesh when {@link portalSpawnWorldX} is set (e.g. finish at lane midpoint). */
+  portalSpawnRotationY?: number;
 }
 
 export interface CollectibleSpec {
@@ -148,6 +163,8 @@ export interface GeneratedLevel {
   tiles: PlacedTile[];
   startPosition: { x: number; y: number; z: number };
   holePosition: { x: number; y: number; z: number };
+  /** `portal` means the final portal hazard completes the level; no cup scoring required. */
+  finishKind?: "hole" | "portal";
   bounds: LevelWorldBounds;
   /** Actual playable support. Missing support is void, even when inside camera bounds. */
   surface: CourseSurface;

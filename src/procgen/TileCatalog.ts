@@ -185,6 +185,21 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     difficultyWeight: 1,
     tags: ["hole"],
   },
+  dead_end_cap: {
+    tileType: "dead_end_cap",
+    modelKey: "tile_hole_ph",
+    footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
+    entrySocket: SocketDirection.NegZ,
+    exitSocket: SocketDirection.PosZ,
+    pivotOffsetFromDeckOrigin: new THREE.Vector3(
+      -TILE_WIDTH / 2,
+      0,
+      TILE_LENGTH / 2,
+    ),
+    exitElevationDelta: 0,
+    difficultyWeight: 1,
+    tags: ["dead_end", "portal"],
+  },
 };
 
 export function getTileDefinition(type: TileType): TileDefinition {

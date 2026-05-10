@@ -21,6 +21,13 @@ const DEFAULT_MODELS_BASE = publicUrl("assets/models/");
  *
  * Missing files: load fails silently except `console.warn`; {@link getModelClone} returns `null`.
  *
+ * **Embedded FBX textures:** there is no in-repo batch step to resize/compress textures inside FBX;
+ * bake smaller maps in your DCC (or use gltf-transform / Blender) before copying into `public/`.
+ *
+ * **Hazard FBX naming:** windmill rotating pieces should be named `windmillArm`, `windmill_arm`, `windmillArm2`, or
+ * `windmillArm.001`-style (underscores/dots are normalized); fan rotors should match `fanArm` / `fan_blade` /
+ * `fanRotor` prefixes (see `implementations.ts`). If names are missing, a sibling heuristic picks likely rotor geometry.
+ *
  * **Procgen tiles:** FBX keys try `.fbx` first, then the same basename with `.glb`.
  * Artist sources may live in repo `/Tiles/` — deploy copies under `public/assets/models/`
  * using names from {@link ASSET_FILENAMES} (e.g. `tile_straight_rw.fbx`).
@@ -42,10 +49,18 @@ export const ASSET_FILENAMES = {
   tile_ramp_lw: "tile_ramp_lw.fbx",
   tile_start_ph: "tile_start_ph.fbx",
   tile_hole_ph: "tile_hole_ph.fbx",
-  hazard_windmill: "hazard_windmill.glb",
-  hazard_axe: "hazard_axe.glb",
-  hazard_fan: "hazard_fan.glb",
-  hazard_bridge: "hazard_bridge.glb",
+  hazard_windmill: "hazard_windmill.fbx",
+  hazard_fan: "hazard_fan.fbx",
+  /** Placeholder until art ships — try `.fbx` then `.glb` */
+  hazard_bridge: "hazard_bridge.fbx",
+  /** Bumpers — falls back to procedural mesh if missing */
+  hazard_bumper_mushroom: "hazard_bumper_mushroom.glb",
+  /** Portal frame — falls back to procedural ring if missing */
+  hazard_portal_gate: "hazard_portal_gate.glb",
+  /** Speed strip — falls back to procedural pad if missing */
+  hazard_boost: "hazard_boost.fbx",
+  /** Sand trap mesh — falls back to procedural sand if missing */
+  hazard_sandpit: "hazard_sandpit.fbx",
   coin: "coin.glb",
   ball_default: "ball_default.glb",
   ball_gold: "ball_gold.glb",

@@ -19,7 +19,9 @@ export type TileType =
   | "ramp_left_wall"
   | "floor_plain"
   | "start_placeholder"
-  | "hole_placeholder";
+  | "hole_placeholder"
+  /** Finish-style cap mesh for portal dead ends — gameplay is straight deck, not a hole. */
+  | "dead_end_cap";
 
 /** Plain object compatible with THREE.Box3 `min` / `max`. */
 export interface Box3Like {
@@ -66,6 +68,12 @@ export interface PlacedTile {
   stationIndex?: number;
 }
 
+export interface PortalLink {
+  id: string;
+  fromTileIndex: number;
+  toTileIndex: number;
+}
+
 export interface GeneratedMap {
   id: string;
   seed: string;
@@ -76,5 +84,10 @@ export interface GeneratedMap {
   holePosition: Vector3;
   cameraBounds: Box3Like;
   imperfectDifficulty: boolean;
+  /** Links between disconnected playable pieces. */
+  portalLinks?: PortalLink[];
+  /** When set, this supported tile hosts the final level-completion portal. */
+  finishPortalTileIndex?: number;
+  finishKind?: "hole" | "portal";
   debugInfo: Record<string, unknown>;
 }

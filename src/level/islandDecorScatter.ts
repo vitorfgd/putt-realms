@@ -80,6 +80,25 @@ function isOutsidePlayableRoute(
   );
 }
 
+function isFarEnoughFromAllTileDecks(
+  x: number,
+  z: number,
+  level: GeneratedLevel,
+  minDist: number,
+): boolean {
+  return minDistSqToTiles(x, z, level) >= minDist * minDist;
+}
+
+/** Pine trunks/canopies need extra horizontal clearance vs deck projection. */
+function islandsOnlyMinDistFromDecks(
+  key: DecorKey,
+  propRadiusXZ: number,
+): number {
+  const canopy = propRadiusXZ * (key === "decor_fantasy_pine_tree" ? 1.28 : 1.06);
+  const pad = key === "decor_fantasy_pine_tree" ? 1.15 : 0.42;
+  return DECK_EXCLUDE_R + canopy + pad;
+}
+
 function applyShadowMode(
   root: THREE.Object3D,
   mode: "full" | "receiveOnly" | "none",
@@ -148,6 +167,36 @@ function trySampleNearIsland(
     const x = slot.x + Math.cos(ang) * rad;
     const z = slot.z + Math.sin(ang) * rad;
     if (isOutsidePlayableRoute(x, z, level)) return { x, z };
+  }
+  return null;
+}
+
+/**
+ * Outer annulus on the island top so samples avoid the deck stack above the centroid; each candidate
+ * must stay ≥ `minDistFromDeckCenter` from every tile deck origin (see {@link islandsOnlyMinDistFromDecks}).
+ */
+function trySampleIslandRimClearOfDecks(
+  slot: UndermapIslandSlot,
+  level: GeneratedLevel,
+  rng: () => number,
+  maxAttempts: number,
+  minDistFromDeckCenter: number,
+): { x: number; z: number } | null {
+  const maxR = Math.max(0.65, slot.halfWidthWorld * 0.9);
+  const innerR = Math.min(maxR * 0.5, maxR - 1.05);
+  const lo = Math.max(0.5, innerR);
+  const hi = maxR;
+  if (hi <= lo + 0.35) return null;
+
+  const needSq = minDistFromDeckCenter * minDistFromDeckCenter;
+  for (let a = 0; a < maxAttempts; a++) {
+    const ang = rng() * Math.PI * 2;
+    const rad = lo + (hi - lo) * Math.sqrt(rng());
+    const x = slot.x + Math.cos(ang) * rad;
+    const z = slot.z + Math.sin(ang) * rad;
+    if (minDistSqToTiles(x, z, level) >= needSq) {
+      return { x, z };
+    }
   }
   return null;
 }
@@ -252,6 +301,8 @@ function tryPlaceDecor(
   extraSinkY: number,
   placed: { x: number; z: number; r: number }[],
   maxAttempts: number,
+  /** Props only on slot meshes — no void-ring fallback; rim-sampled with deck clearance. */
+  islandsOnly: boolean,
 ): THREE.Object3D | null {
   if (!assetRegistry.isReady(key)) return null;
 
@@ -260,16 +311,28 @@ function tryPlaceDecor(
   const singleSampleIsland = (): { x: number; z: number; groundY: number } | null => {
     if (hasSlots && preferIsland) {
       const slot = slots[Math.floor(rng() * slots.length)]!;
-      const xz = trySampleNearIsland(slot, level, rng, 60);
+      const xz = islandsOnly
+        ? trySampleIslandRimClearOfDecks(
+            slot,
+            level,
+            rng,
+            240,
+            islandsOnlyMinDistFromDecks(key, rPre),
+          )
+        : trySampleNearIsland(slot, level, rng, 60);
       if (xz) {
-        const gy = resolveDecorGroundY(xz.x, xz.z, slots, slot.topY + ISLAND_SURFACE_BIAS_Y);
+        const gy = islandsOnly
+          ? slot.topY + ISLAND_SURFACE_BIAS_Y
+          : resolveDecorGroundY(xz.x, xz.z, slots, slot.topY + ISLAND_SURFACE_BIAS_Y);
         return { ...xz, groundY: gy };
       }
     }
-    const xzOff = trySampleOffDeck(level, rng, 90);
-    if (xzOff) {
-      const gy = resolveDecorGroundY(xzOff.x, xzOff.z, slots, shelfGroundY);
-      return { ...xzOff, groundY: gy };
+    if (!islandsOnly) {
+      const xzOff = trySampleOffDeck(level, rng, 90);
+      if (xzOff) {
+        const gy = resolveDecorGroundY(xzOff.x, xzOff.z, slots, shelfGroundY);
+        return { ...xzOff, groundY: gy };
+      }
     }
     return null;
   };
@@ -308,12 +371,33 @@ function tryPlaceDecor(
       continue;
     }
 
+    if (
+      islandsOnly &&
+      !isFarEnoughFromAllTileDecks(
+        sample.x,
+        sample.z,
+        level,
+        islandsOnlyMinDistFromDecks(key, rPost),
+      )
+    ) {
+      disposeDecorClone(node);
+      continue;
+    }
+
     placed.push({ x: sample.x, z: sample.z, r: rPost });
     applyShadowMode(node, shadow);
     return node;
   }
 
   return null;
+}
+
+export interface IslandDecorScatterOptions {
+  /**
+   * Only place props on the given undermap slot tops — no “outside fairway” sampling and no void-ring
+   * fallback (procgen-debug islands sit under tiles, so route clearance would reject every sample).
+   */
+  islandsOnly?: boolean;
 }
 
 /**
@@ -323,12 +407,15 @@ function tryPlaceDecor(
 export function createIslandSurroundDecor(
   level: GeneratedLevel,
   slots: readonly UndermapIslandSlot[],
+  options?: IslandDecorScatterOptions,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = "IslandSurroundDecor";
 
   const anyReady = ISLAND_DECOR_ASSET_KEYS.some((k) => assetRegistry.isReady(k));
   if (!anyReady) return group;
+
+  const islandsOnly = Boolean(options?.islandsOnly);
 
   const seedStr = `${level.procgenSeed ?? level.id}|${level.levelIndex}|decorScatter`;
   const rng = mulberry32(hashString(seedStr));
@@ -339,7 +426,10 @@ export function createIslandSurroundDecor(
     b.maxX - b.minX,
     b.maxZ - b.minZ,
   );
-  const density = Math.max(0.55, Math.min(1.25, span / 40));
+  let density = Math.max(0.55, Math.min(1.25, span / 40));
+  if (islandsOnly && slots.length > 0) {
+    density *= Math.max(0.32, Math.min(1.05, slots.length / 5));
+  }
 
   const nMush = Math.round(5 * density);
   const nCrystal = Math.round(4 * density);
@@ -427,6 +517,7 @@ export function createIslandSurroundDecor(
       job.extraSinkY,
       placed,
       placeAttempts,
+      islandsOnly,
     );
     if (node) group.add(node);
   }

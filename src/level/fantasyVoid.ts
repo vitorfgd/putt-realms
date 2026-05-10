@@ -2,27 +2,41 @@ import * as THREE from "three";
 import { cloudVoid, skyBlueTransparent } from "../art/Materials";
 import type { LevelWorldBounds } from "./LevelTypes";
 
+export interface FantasyVoidLayerOptions {
+  /**
+   * When false, only the distant cloud ring is added — skips the large translucent
+   * plane (procgen game view: avoids a harsh darker slab while keeping clouds).
+   */
+  includeWaterPlane?: boolean;
+}
+
 export class FantasyVoidLayer extends THREE.Group {
-  private readonly water: THREE.Mesh;
+  private readonly water: THREE.Mesh | null;
   private readonly cloudRing = new THREE.Group();
   private time = 0;
 
-  constructor(bounds: LevelWorldBounds) {
+  constructor(bounds: LevelWorldBounds, options?: FantasyVoidLayerOptions) {
     super();
     this.name = "FantasyVoidLayer";
+    const includeWater = options?.includeWaterPlane !== false;
     const spanX = Math.max(140, bounds.maxX - bounds.minX + 120);
     const spanZ = Math.max(160, bounds.maxZ - bounds.minZ + 140);
     const cx = (bounds.minX + bounds.maxX) / 2;
     const cz = (bounds.minZ + bounds.maxZ) / 2;
 
-    this.water = new THREE.Mesh(
-      new THREE.PlaneGeometry(spanX * 2.4, spanZ * 2.4, 12, 12),
-      skyBlueTransparent(0.36),
-    );
-    this.water.rotation.x = -Math.PI / 2;
-    this.water.position.set(cx, -7.5, cz);
-    this.water.renderOrder = -10;
-    this.add(this.water);
+    if (includeWater) {
+      const water = new THREE.Mesh(
+        new THREE.PlaneGeometry(spanX * 2.4, spanZ * 2.4, 12, 12),
+        skyBlueTransparent(0.36),
+      );
+      water.rotation.x = -Math.PI / 2;
+      water.position.set(cx, -7.5, cz);
+      water.renderOrder = -10;
+      this.add(water);
+      this.water = water;
+    } else {
+      this.water = null;
+    }
 
     this.cloudRing.name = "VoidCloudRing";
     const cloudMat = cloudVoid();
@@ -44,9 +58,11 @@ export class FantasyVoidLayer extends THREE.Group {
 
   update(deltaSeconds: number): void {
     this.time += deltaSeconds;
-    const mat = this.water.material as THREE.MeshStandardMaterial;
-    mat.opacity = 0.32 + Math.sin(this.time * 0.55) * 0.05;
-    this.water.position.y = -7.5 + Math.sin(this.time * 0.34) * 0.35;
+    if (this.water) {
+      const mat = this.water.material as THREE.MeshStandardMaterial;
+      mat.opacity = 0.32 + Math.sin(this.time * 0.55) * 0.05;
+      this.water.position.y = -7.5 + Math.sin(this.time * 0.34) * 0.35;
+    }
     this.cloudRing.rotation.y += deltaSeconds * 0.018;
   }
 }

@@ -1,7 +1,18 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { assetRegistry } from "../art/AssetRegistry";
-import { SKY_BLUE } from "../core/Constants";
+import {
+  PSX_LOW_RES_INTERNAL_SCALE,
+  SKY_BLUE,
+} from "../core/Constants";
+import { PsxLowResPresenter } from "../core/PsxLowResPresenter";
+import { createHazardInstances } from "../hazards/implementations";
+import type { HazardInstance } from "../hazards/Hazard";
+import { FantasyVoidLayer } from "../level/fantasyVoid";
+import type { GeneratedLevel, LevelWorldBounds } from "../level/LevelTypes";
+import { createIslandSurroundDecor } from "../level/islandDecorScatter";
+import { buildUndermapIslandGroup } from "../level/undermapIslands";
+import { adaptProcgenMapToGeneratedLevel } from "../level/procgenLevelAdapter";
 import {
   createDebugEndpointLabels,
   createDebugPlaceholderGroup,
@@ -22,6 +33,7 @@ import {
   centerModelOnDeckOrigin,
   procgenModelExtentForAssetKey,
 } from "./procgenModelScale";
+import { computeProcgenUndermapQuadSlots } from "./procgenUndermapQuads";
 import {
   createSocketDebugGroup,
   createSocketDebugGroupForPlacedTile,
@@ -37,6 +49,13 @@ const SINGLE_KEYS: TileType[] = [
 
 export interface ProcgenDebugViewerOptions {
   onMapGenerated?: (map: GeneratedMap) => void;
+  /**
+   * Current difficulty from toolbar (1–20). Used when **G** is pressed or when
+   * {@link generateMapFromUi} omits `targetDifficulty`, so generation matches the UI.
+   */
+  getTargetDifficulty?: () => number;
+  /** PSX low-res RT + upscale path (see {@link PSX_LOW_RES_INTERNAL_SCALE} in Constants). */
+  initialPsxLowRes?: boolean;
 }
 
 function createDebugSeed(): string {
@@ -151,7 +170,8 @@ function buildProcgenDebugFallback(type: TileType): THREE.Object3D {
     type === "convex_right_wall" ||
     type === "concave_right_wall" ||
     type === "start_placeholder" ||
-    type === "hole_placeholder"
+    type === "hole_placeholder" ||
+    type === "dead_end_cap"
   ) {
     // The current corner source art has walls on local +X and local -Z.
     g.add(buildDebugWallAlongZ(TILE_LENGTH / 2));
@@ -193,12 +213,34 @@ export class ProcgenDebugViewer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly controls: OrbitControls;
   private readonly mainGroup = new THREE.Group();
+  /** Tile meshes only — stays visible in {@link setMapOnlyScene} mode */
+  private readonly mapTilesGroup = new THREE.Group();
+  /** Procgen placeholders + endpoint text — hidden in map-only */
+  private readonly debugOverlaysGroup = new THREE.Group();
+  /** Hazards / obstacles / portals — stays visible in game-like {@link setMapOnlyScene} mode */
+  private readonly hazardDebugGroup = new THREE.Group();
   private readonly socketOverlay = new THREE.Group();
   private socketHelpersVisible = true;
+  /** When true: hide procgen-only overlays (placeholders, labels) and sockets — tiles + hazards like gameplay. */
+  private mapOnlyScene = false;
   private mode: "single" | "map" = "single";
   private singleTileType: TileType = "straight_right_wall";
   private currentMap: GeneratedMap | null = null;
+  private hazardDebugInstances: HazardInstance[] = [];
+  private hazardAnimPrevMs = performance.now();
   private raf = 0;
+  /** Map debug = {@link SKY_BLUE}; game view = slightly darker solid clear + cloud ring (no water plane). */
+  private readonly skyClearMapDebug = new THREE.Color(SKY_BLUE);
+  private readonly skyClearGameView = new THREE.Color(SKY_BLUE).multiplyScalar(
+    0.82,
+  );
+  private fantasyVoidLayer: FantasyVoidLayer | null = null;
+  /** Medium floating islands under 2×2 deck blocks — procgen debug only (see {@link computeProcgenUndermapQuadSlots}). */
+  private procgenUndermapGroup: THREE.Group | null = null;
+  /** Same island décor scatter as gameplay (trees, mushrooms, etc.) — procgen map mode only. */
+  private procgenIslandDecorGroup: THREE.Group | null = null;
+  private psxLowResEnabled = false;
+  private psxPresenter: PsxLowResPresenter | null = null;
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     const k = e.key;
@@ -209,7 +251,7 @@ export class ProcgenDebugViewer {
       return;
     }
     if (k === "g" || k === "G") {
-      this.showGeneratedMap();
+      this.showGeneratedMap(undefined, undefined);
       e.preventDefault();
       return;
     }
@@ -229,6 +271,7 @@ export class ProcgenDebugViewer {
     private readonly canvas: HTMLCanvasElement,
     private readonly options: ProcgenDebugViewerOptions = {},
   ) {
+    this.psxLowResEnabled = Boolean(options.initialPsxLowRes);
     const aspect =
       canvas.clientWidth / Math.max(1, canvas.clientHeight) ||
       window.innerWidth / Math.max(1, window.innerHeight);
@@ -243,15 +286,28 @@ export class ProcgenDebugViewer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
+    if (this.psxLowResEnabled) {
+      this.psxPresenter = new PsxLowResPresenter(
+        this.renderer,
+        PSX_LOW_RES_INTERNAL_SCALE,
+      );
+    }
+
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.target.set(0, 0, 6);
     this.controls.update();
 
-    this.scene.background = new THREE.Color(SKY_BLUE);
+    this.scene.background = this.skyClearMapDebug;
     const amb = new THREE.AmbientLight(0xfff5e8, 0.55);
     const dir = new THREE.DirectionalLight(0xfff0dd, 1.2);
     dir.position.set(8, 22, 12);
     this.scene.add(amb, dir);
+    this.mapTilesGroup.name = "ProcgenDebugMapTiles";
+    this.debugOverlaysGroup.name = "ProcgenDebugOverlays";
+    this.hazardDebugGroup.name = "ProcgenDebugHazards";
+    this.mainGroup.add(this.mapTilesGroup);
+    this.mainGroup.add(this.debugOverlaysGroup);
+    this.mainGroup.add(this.hazardDebugGroup);
     this.scene.add(this.mainGroup);
     this.scene.add(this.socketOverlay);
 
@@ -263,6 +319,7 @@ export class ProcgenDebugViewer {
     this.canvas.tabIndex = 0;
     void this.canvas.focus();
     this.resizeRenderer();
+    this.hazardAnimPrevMs = performance.now();
     this.showSingleTile(this.singleTileType);
     this.tick();
   }
@@ -271,6 +328,11 @@ export class ProcgenDebugViewer {
     cancelAnimationFrame(this.raf);
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("resize", this.onResize);
+    this.disposeFantasyVoid();
+    this.disposeProcgenIslandDecor();
+    this.disposeProcgenUndermap();
+    this.psxPresenter?.dispose();
+    this.psxPresenter = null;
     this.controls.dispose();
     this.renderer.dispose();
   }
@@ -292,8 +354,96 @@ export class ProcgenDebugViewer {
     this.toggleSockets();
   }
 
-  /** Public API — same as pressing G. */
-  generateMapFromUi(seed?: string, targetDifficulty = 6): string {
+  /**
+   * Game-like preview: hide procgen-only overlays (placeholders, endpoint labels) and socket helpers.
+   * Tile meshes and hazards (bumpers, portals, etc.) stay visible.
+   * DOM chrome is toggled by the procgen bootstrap toolbar.
+   */
+  setMapOnlyScene(enabled: boolean): void {
+    this.mapOnlyScene = enabled;
+    this.applyMapOnlyVisibility();
+  }
+
+  getMapOnlyScene(): boolean {
+    return this.mapOnlyScene;
+  }
+
+  private applyMapOnlyVisibility(): void {
+    const only = this.mapOnlyScene;
+    this.debugOverlaysGroup.visible = !only;
+    this.socketOverlay.visible = !only && this.socketHelpersVisible;
+    this.syncGameViewSky();
+  }
+
+  /** Game view: darker clear + {@link FantasyVoidLayer} clouds only (no translucent water plane). */
+  private syncGameViewSky(): void {
+    this.scene.background = this.mapOnlyScene
+      ? this.skyClearGameView
+      : this.skyClearMapDebug;
+    if (!this.mapOnlyScene) {
+      this.disposeFantasyVoid();
+      return;
+    }
+    this.disposeFantasyVoid();
+    this.fantasyVoidLayer = new FantasyVoidLayer(
+      this.boundsForGameViewBackdrop(),
+      { includeWaterPlane: false },
+    );
+    this.scene.add(this.fantasyVoidLayer);
+  }
+
+  private boundsForGameViewBackdrop(): LevelWorldBounds {
+    if (this.mode === "map" && this.currentMap) {
+      const b = this.currentMap.cameraBounds;
+      return { minX: b.min.x, maxX: b.max.x, minZ: b.min.z, maxZ: b.max.z };
+    }
+    const pad = TILE_LENGTH * 2;
+    return { minX: -pad, maxX: pad, minZ: -pad, maxZ: pad * 2 };
+  }
+
+  private disposeFantasyVoid(): void {
+    if (!this.fantasyVoidLayer) return;
+    this.scene.remove(this.fantasyVoidLayer);
+    this.disposeObject3D(this.fantasyVoidLayer);
+    this.fantasyVoidLayer = null;
+  }
+
+  private disposeProcgenUndermap(): void {
+    if (!this.procgenUndermapGroup) return;
+    this.scene.remove(this.procgenUndermapGroup);
+    this.disposeObject3D(this.procgenUndermapGroup);
+    this.procgenUndermapGroup = null;
+  }
+
+  private disposeProcgenIslandDecor(): void {
+    if (!this.procgenIslandDecorGroup) return;
+    this.scene.remove(this.procgenIslandDecorGroup);
+    this.disposeObject3D(this.procgenIslandDecorGroup);
+    this.procgenIslandDecorGroup = null;
+  }
+
+  setPsxLowResEnabled(enabled: boolean): void {
+    if (enabled === this.psxLowResEnabled) return;
+    this.psxLowResEnabled = enabled;
+    if (enabled) {
+      if (!this.psxPresenter) {
+        this.psxPresenter = new PsxLowResPresenter(
+          this.renderer,
+          PSX_LOW_RES_INTERNAL_SCALE,
+        );
+      }
+    } else {
+      this.psxPresenter?.dispose();
+      this.psxPresenter = null;
+    }
+  }
+
+  getPsxLowResEnabled(): boolean {
+    return this.psxLowResEnabled;
+  }
+
+  /** Public API — same as pressing G. If `targetDifficulty` is omitted, uses {@link ProcgenDebugViewerOptions.getTargetDifficulty} or 6. */
+  generateMapFromUi(seed?: string, targetDifficulty?: number): string {
     return this.showGeneratedMap(seed, targetDifficulty);
   }
 
@@ -304,11 +454,25 @@ export class ProcgenDebugViewer {
 
   private toggleSockets(): void {
     this.socketHelpersVisible = !this.socketHelpersVisible;
-    this.socketOverlay.visible = this.socketHelpersVisible;
+    this.socketOverlay.visible =
+      !this.mapOnlyScene && this.socketHelpersVisible;
+  }
+
+  private disposeHazardDebug(): void {
+    for (const h of this.hazardDebugInstances) {
+      h.group.removeFromParent();
+      h.dispose();
+    }
+    this.hazardDebugInstances = [];
   }
 
   private clearGroups(): void {
-    this.disposeGroupContents(this.mainGroup);
+    this.disposeProcgenIslandDecor();
+    this.disposeProcgenUndermap();
+    this.disposeHazardDebug();
+    this.disposeGroupContents(this.mapTilesGroup);
+    this.disposeGroupContents(this.debugOverlaysGroup);
+    this.disposeGroupContents(this.hazardDebugGroup);
     this.disposeGroupContents(this.socketOverlay);
   }
 
@@ -334,7 +498,7 @@ export class ProcgenDebugViewer {
 
   private rebuildSocketHelpers(): void {
     this.disposeGroupContents(this.socketOverlay);
-    if (!this.socketHelpersVisible) {
+    if (!this.socketHelpersVisible || this.mapOnlyScene) {
       this.socketOverlay.visible = false;
       return;
     }
@@ -364,19 +528,33 @@ export class ProcgenDebugViewer {
     const meshRoot = buildTileVisual(type);
     meshRoot.position.set(0, 0, 0);
     meshRoot.rotation.y = 0;
-    this.mainGroup.add(meshRoot);
+    this.mapTilesGroup.add(meshRoot);
 
     this.rebuildSocketHelpers();
+    this.applyMapOnlyVisibility();
   }
 
-  private showGeneratedMap(seed = createDebugSeed(), targetDifficulty = 6): string {
+  private resolveDebugDifficulty(explicit?: number): number {
+    if (explicit !== undefined && Number.isFinite(explicit)) {
+      return Math.max(1, Math.min(20, Math.round(explicit)));
+    }
+    const fromUi = this.options.getTargetDifficulty?.();
+    if (fromUi !== undefined && Number.isFinite(fromUi)) {
+      return Math.max(1, Math.min(20, Math.round(fromUi)));
+    }
+    return 6;
+  }
+
+  private showGeneratedMap(seed?: string, targetDifficulty?: number): string {
+    const td = this.resolveDebugDifficulty(targetDifficulty);
+    const s = seed ?? createDebugSeed();
     const map = mapGenerationEndpoint.generateMap({
-      seed,
-      levelIndex: 6,
-      targetDifficulty,
-      maxTiles: debugMaxTilesForDifficulty(targetDifficulty),
-      allowRamps: targetDifficulty >= 3,
-      allowCurves: targetDifficulty >= 2,
+      seed: s,
+      levelIndex: td,
+      targetDifficulty: td,
+      maxTiles: debugMaxTilesForDifficulty(td),
+      allowRamps: td >= 3,
+      allowCurves: td >= 2,
     });
 
     this.mode = "map";
@@ -384,9 +562,23 @@ export class ProcgenDebugViewer {
     this.options.onMapGenerated?.(map);
     this.clearGroups();
 
-    const placeholders = createDebugPlaceholderGroup(map);
-    this.mainGroup.add(placeholders);
-    this.mainGroup.add(createDebugEndpointLabels(map));
+    let adapted: GeneratedLevel | null = null;
+    try {
+      adapted = adaptProcgenMapToGeneratedLevel(map, {
+        levelIndex: td,
+        targetDifficultyRounded: Math.min(
+          10,
+          Math.max(0, Math.round(Number(map.difficulty) || td * 0.5)),
+        ),
+        rng: () => Math.random(),
+      });
+    } catch (err) {
+      console.warn("[ProcgenDebugViewer] level adapt failed (no hazards / labels):", err);
+    }
+
+    const placeholders = createDebugPlaceholderGroup(map, adapted?.hazardSpecs);
+    this.debugOverlaysGroup.add(placeholders);
+    this.debugOverlaysGroup.add(createDebugEndpointLabels(map));
 
     for (const t of map.tiles) {
       const def = getTileDefinition(t.tileType);
@@ -399,7 +591,35 @@ export class ProcgenDebugViewer {
       piece.rotation.y = t.rotationY;
       art.name = `procgen_debug_art_${t.tileType}_${t.id}`;
       piece.add(art);
-      this.mainGroup.add(piece);
+      this.mapTilesGroup.add(piece);
+    }
+
+    if (adapted) {
+      try {
+        this.hazardDebugInstances = createHazardInstances(
+          adapted.hazardSpecs,
+          adapted.tiles,
+        );
+        for (const h of this.hazardDebugInstances) {
+          this.hazardDebugGroup.add(h.group);
+        }
+      } catch (err) {
+        console.warn("[ProcgenDebugViewer] hazard instances failed:", err);
+      }
+    }
+
+    const quadSlots = computeProcgenUndermapQuadSlots(map);
+    if (quadSlots.length > 0) {
+      this.procgenUndermapGroup = buildUndermapIslandGroup(quadSlots);
+      this.procgenUndermapGroup.name = "ProcgenDebugUndermapQuads";
+      this.scene.add(this.procgenUndermapGroup);
+      if (adapted) {
+        this.procgenIslandDecorGroup = createIslandSurroundDecor(adapted, quadSlots, {
+          islandsOnly: true,
+        });
+        this.procgenIslandDecorGroup.name = "ProcgenDebugIslandDecor";
+        this.scene.add(this.procgenIslandDecorGroup);
+      }
     }
 
     const cx =
@@ -416,12 +636,37 @@ export class ProcgenDebugViewer {
     this.controls.update();
 
     this.rebuildSocketHelpers();
-    return seed;
+    this.applyMapOnlyVisibility();
+    return s;
   }
 
   private tick = (): void => {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - this.hazardAnimPrevMs) / 1000);
+    this.hazardAnimPrevMs = now;
+    for (const h of this.hazardDebugInstances) {
+      h.update(dt);
+    }
+    this.fantasyVoidLayer?.update(dt);
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.renderer.setScissorTest(false);
+    this.renderer.setViewport(0, 0, w, h);
+    if (this.psxPresenter) {
+      const clear =
+        this.scene.background instanceof THREE.Color
+          ? this.scene.background
+          : SKY_BLUE;
+      this.psxPresenter.render(this.renderer, this.scene, this.camera, clear, {
+        x: 0,
+        y: 0,
+        width: w,
+        height: h,
+      });
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
     this.raf = requestAnimationFrame(this.tick);
   };
 }

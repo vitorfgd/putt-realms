@@ -16,6 +16,11 @@ export interface UndermapIslandSlot {
   readonly rotationY: number;
   /** ~Horizontal half-extent in world units — scatter decor within this disk */
   readonly halfWidthWorld: number;
+  /**
+   * Local-space X/Z scale multipliers applied with {@link scale} (Three.js: scale, then Y rotation).
+   * Procgen-debug uses this to pinch footprint beside ramp neighbors without world-axis shear.
+   */
+  readonly scaleAxisMul?: Readonly<{ x: number; z: number }>;
 }
 
 function mulberry32(seed: number): () => number {
@@ -220,9 +225,12 @@ export function buildUndermapIslandGroup(slots: readonly UndermapIslandSlot[]): 
     const node = assetRegistry.getModelClone(ASSET_KEY);
     if (!node) break;
 
+    const ax = slot.scaleAxisMul?.x ?? 1;
+    const az = slot.scaleAxisMul?.z ?? 1;
+
     node.position.set(0, 0, 0);
     node.rotation.set(0, slot.rotationY, 0);
-    node.scale.setScalar(slot.scale);
+    node.scale.set(slot.scale * ax, slot.scale, slot.scale * az);
     node.updateMatrixWorld(true);
     scratchBox.setFromObject(node);
     node.position.set(slot.x, slot.topY - scratchBox.max.y, slot.z);

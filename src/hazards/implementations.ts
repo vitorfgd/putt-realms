@@ -1,14 +1,13 @@
 import * as THREE from "three";
 import { assetRegistry } from "../art/AssetRegistry";
 import {
-  bladeSteel,
   boostPadArrowBlue,
   fanStone,
   hazardBridgeGapRed,
+  holeCupPortalSurfaceMaterial,
   PSX_SKY_BLUE,
   sandGold,
   warmCreamStone,
-  woodBrown,
 } from "../art/Materials";
 import { BALL_RADIUS } from "../core/Constants";
 import type { SimpleBallPhysics } from "../gameplay/SimpleBallPhysics";
@@ -18,14 +17,42 @@ import {
   LANE_WIDTH,
   TILE_SIZE,
 } from "../level/TileDimensions";
-import type { HazardBallContext, HazardEnvironmental, HazardInstance } from "./Hazard";
+import type {
+  HazardBallContext,
+  HazardEnvironmental,
+  HazardInstance,
+  PortalTriggerResult,
+} from "./Hazard";
 
 const ARM_THICK = 0.28;
-/** Visual + collision scale for procedural windmill (GLB gets its own scale) */
+/** Visual + collision scale for procedural windmill */
 const WINDMILL_SCALE = 0.775;
-const WINDMILL_GLB_SCALE = 0.825;
-const AXE_SCALE = 1.5;
-const AXE_GLB_SCALE = 1.6;
+const FAN_GLB_SPIN_RATE = 10;
+
+/**
+ * Imported FBX/GLB hazard meshes are often authored in cm or arbitrary units.
+ * Uniform scale so max(X,Z) bbox extent matches target world span (~tile/lane scale).
+ */
+function scaleImportedHazardToHorizontalSpan(
+  root: THREE.Object3D,
+  targetSpanXZ: number,
+): void {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const span = Math.max(size.x, size.z, 1e-6);
+  if (!Number.isFinite(span)) return;
+  root.scale.setScalar(targetSpanXZ / span);
+}
+
+/** Target horizontal footprint (world units) per hazard after auto-scale */
+const HAZARD_SPAN_WINDMILL = 5.2;
+const HAZARD_SPAN_FAN = 2.5;
+const HAZARD_SPAN_BRIDGE = 6;
+const HAZARD_SPAN_BUMPER = 2.05;
+const HAZARD_SPAN_PORTAL = 2.35;
+const HAZARD_SPAN_BOOST = 4.3;
+const HAZARD_SPAN_SAND = 4.8;
 
 function tileBasis(rotationY: number): {
   fx: number;
@@ -77,20 +104,154 @@ function closestPointOnSegment2D(
   return { x: ax + abx * t, z: az + abz * t, t };
 }
 
-/** GLB windmills often add a grey pole/mast; hide by name so only the big wood arm reads */
-function hideWindmillGreyStaticParts(root: THREE.Object3D, armSpin: THREE.Object3D): void {
+/** FBX/GLB windmills often add a grey pole/mast; hide by name so only spinning arms read */
+function hideWindmillGreyStaticParts(
+  root: THREE.Object3D,
+  spinRoots: readonly THREE.Object3D[],
+): void {
   const re =
     /pole|mast|tower|column|stem|post|stand|pylon|pedestal|mount|shaft|hub|bearing/i;
+  const underSpin = (mesh: THREE.Mesh): boolean => {
+    for (const arm of spinRoots) {
+      let p: THREE.Object3D | null = mesh.parent;
+      while (p) {
+        if (p === arm) return true;
+        p = p.parent;
+      }
+    }
+    return false;
+  };
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
-    if (o === armSpin) return;
-    let p: THREE.Object3D | null = o.parent;
-    while (p) {
-      if (p === armSpin) return;
-      p = p.parent;
-    }
+    if (spinRoots.includes(o)) return;
+    if (underSpin(o)) return;
     if (re.test(o.name)) o.visible = false;
   });
+}
+
+/** Blender/FBX names often use `_` / `.001`; normalize so `windmill_arm` matches `windmillArm`. */
+function normalizeForAssetMatch(name: string): string {
+  return name.toLowerCase().replace(/[-\s_.]/g, "");
+}
+
+/**
+ * When named spin nodes are missing, prefer a mesh-bearing sibling under the same parent
+ * (typical FBX: static base + rotor group) instead of spinning the whole file root.
+ */
+function collectSpinFallbackTargets(root: THREE.Object3D): THREE.Object3D[] {
+  const staticHint =
+    /base|bottom|stand|pole|mast|tower|column|stem|post|pylon|pedestal|foundation|ground|deck|housing|body|mount/i;
+
+  const containsMesh = (o: THREE.Object3D): boolean => {
+    let found = false;
+    o.traverse((x) => {
+      if (x instanceof THREE.Mesh) found = true;
+    });
+    return found;
+  };
+
+  const horizontalSpan = (o: THREE.Object3D): number => {
+    const box = new THREE.Box3().setFromObject(o);
+    const sz = box.getSize(new THREE.Vector3());
+    return Math.max(sz.x, sz.z);
+  };
+
+  const scoreNode = (s: THREE.Object3D): number => {
+    const span = horizontalSpan(s);
+    const penalty =
+      staticHint.test(s.name) ||
+      staticHint.test(normalizeForAssetMatch(s.name))
+        ? 0.35
+        : 1;
+    return span * penalty;
+  };
+
+  root.updateMatrixWorld(true);
+
+  let parents: THREE.Object3D[] = [root];
+  const expanded = new Set<string>([root.uuid]);
+
+  while (parents.length > 0) {
+    const nextParents: THREE.Object3D[] = [];
+
+    for (const p of parents) {
+      const meshKids = p.children.filter(containsMesh);
+      if (meshKids.length >= 2) {
+        const sorted = [...meshKids].sort((a, b) => scoreNode(b) - scoreNode(a));
+        return [sorted[0]!];
+      }
+      for (const ch of meshKids) {
+        if (!expanded.has(ch.uuid)) {
+          expanded.add(ch.uuid);
+          nextParents.push(ch);
+        }
+      }
+    }
+
+    parents = nextParents;
+  }
+
+  const meshKids = root.children.filter(containsMesh);
+  if (meshKids.length === 1) {
+    return [meshKids[0]!];
+  }
+  return [root];
+}
+
+/**
+ * FBX exports: name rotating blade/arm objects with a `windmillArm` prefix (e.g. `windmillArm`,
+ * `windmill_arm`, `windmillArm.001`) so each gets {@link THREE.Object3D.rotation.y} driven in sync.
+ */
+function collectWindmillSpinTargets(root: THREE.Object3D): THREE.Object3D[] {
+  const seen = new Set<string>();
+  const out: THREE.Object3D[] = [];
+  root.traverse((o) => {
+    if (!o.name?.trim()) return;
+    const compact = normalizeForAssetMatch(o.name);
+    if (/^windmillarm/.test(compact)) {
+      if (!seen.has(o.uuid)) {
+        seen.add(o.uuid);
+        out.push(o);
+      }
+    }
+  });
+  if (out.length === 0) {
+    const named = root.getObjectByName("windmillArm");
+    if (named && !seen.has(named.uuid)) {
+      out.push(named);
+    }
+  }
+  if (out.length === 0) {
+    return collectSpinFallbackTargets(root);
+  }
+  return out;
+}
+
+/**
+ * Fan FBX: prefix `fanArm`, `fanBlade`, `fanRotor`, or bare `blade` / `propeller` / `rotor` + digits.
+ */
+function collectFanSpinTargets(root: THREE.Object3D): THREE.Object3D[] {
+  const seen = new Set<string>();
+  const out: THREE.Object3D[] = [];
+  const tryAdd = (o: THREE.Object3D | null | undefined) => {
+    if (!o || seen.has(o.uuid)) return;
+    seen.add(o.uuid);
+    out.push(o);
+  };
+  tryAdd(root.getObjectByName("fanBlades"));
+  tryAdd(root.getObjectByName("fanBlade"));
+  tryAdd(root.getObjectByName("fanArm"));
+  root.traverse((o) => {
+    if (!o.name?.trim()) return;
+    const n = normalizeForAssetMatch(o.name);
+    if (/^fan(arm|blade|rotor)/.test(n) || /^(blade|propeller|rotor)\d*$/.test(n)) {
+      tryAdd(o);
+    }
+  });
+  if (out.length === 0) {
+    return collectSpinFallbackTargets(root);
+  }
+  return out;
 }
 
 abstract class BaseHazard implements HazardInstance {
@@ -168,8 +329,8 @@ class WindmillHazard extends BaseHazard {
   private readonly rz: number;
   private readonly fx: number;
   private readonly fz: number;
-  /** Spin target — procedural arm mesh or GLB node `windmillArm` */
-  private readonly armSpin: THREE.Object3D;
+  /** Spin targets — procedural arm or FBX nodes named `windmillArm*` */
+  private readonly armSpins: THREE.Object3D[];
 
   constructor(
     id: string,
@@ -178,6 +339,7 @@ class WindmillHazard extends BaseHazard {
     cx: number,
     cz: number,
     rotationY: number,
+    deckY = 0,
   ) {
     super(id, weight, tileKey);
     this.cx = cx;
@@ -192,11 +354,10 @@ class WindmillHazard extends BaseHazard {
     const armBase = LANE_HALF_WIDTH * 1.12 * WINDMILL_SCALE;
     if (glb) {
       this.group.add(glb);
-      this.armSpin =
-        glb.getObjectByName("windmillArm") ?? glb;
-      hideWindmillGreyStaticParts(glb, this.armSpin);
-      this.group.scale.setScalar(WINDMILL_GLB_SCALE);
-      this.group.position.set(cx, 0, cz);
+      scaleImportedHazardToHorizontalSpan(glb, HAZARD_SPAN_WINDMILL);
+      this.armSpins = collectWindmillSpinTargets(glb);
+      hideWindmillGreyStaticParts(glb, this.armSpins);
+      this.group.position.set(cx, deckY, cz);
       this.group.rotation.y = rotationY;
       this.syncArmCollisionFromMesh();
       return;
@@ -213,17 +374,20 @@ class WindmillHazard extends BaseHazard {
     arm.position.y = 0.42 * WINDMILL_SCALE;
     arm.name = "windmillArm";
     this.group.add(arm);
-    this.armSpin = arm;
+    this.armSpins = [arm];
 
-    this.group.position.set(cx, 0, cz);
+    this.group.position.set(cx, deckY, cz);
     this.group.rotation.y = rotationY;
     this.syncArmCollisionFromMesh();
   }
 
-  /** Align segment length + hit thickness with the actual scaled mesh (fixes GLB vs math mismatch). */
+  /** Align segment length + hit thickness with the actual scaled mesh (fixes FBX vs math mismatch). */
   private syncArmCollisionFromMesh(): void {
     this.group.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(this.armSpin);
+    const box = new THREE.Box3();
+    for (const part of this.armSpins) {
+      box.union(new THREE.Box3().setFromObject(part));
+    }
     const e = box.getSize(new THREE.Vector3());
     const reach = 0.5 * Math.hypot(e.x, e.z);
     this.armHalfLen = THREE.MathUtils.clamp(
@@ -243,7 +407,9 @@ class WindmillHazard extends BaseHazard {
     super.update(dt);
     this.angle += this.spin * dt;
     /** Monotonic Y — same spin sense forever (no sin back-and-forth) */
-    this.armSpin.rotation.y = this.angle;
+    for (const part of this.armSpins) {
+      part.rotation.y = this.angle;
+    }
   }
 
   resolveImpulses(
@@ -330,6 +496,7 @@ class SandpitHazard extends BaseHazard {
     cx: number,
     cz: number,
     rotationY: number,
+    deckY = 0,
   ) {
     super(id, weight, tileKey);
     const b = tileBasis(rotationY);
@@ -342,14 +509,21 @@ class SandpitHazard extends BaseHazard {
     this.halfW = LANE_HALF_WIDTH * 0.78;
     this.halfL = TILE_SIZE * 0.38;
 
-    const sand = new THREE.Mesh(
-      new THREE.BoxGeometry(this.halfW * 2, 0.08, this.halfL * 2),
-      sandGold(),
-    );
-    sand.position.y = -0.09;
-    sand.rotation.y = rotationY;
-    this.group.add(sand);
-    this.group.position.set(cx, 0, cz);
+    const sandModel = assetRegistry.getModelClone("hazard_sandpit");
+    if (sandModel) {
+      sandModel.rotation.y = rotationY;
+      scaleImportedHazardToHorizontalSpan(sandModel, HAZARD_SPAN_SAND);
+      this.group.add(sandModel);
+    } else {
+      const sand = new THREE.Mesh(
+        new THREE.BoxGeometry(this.halfW * 2, 0.08, this.halfL * 2),
+        sandGold(),
+      );
+      sand.position.y = -0.09;
+      sand.rotation.y = rotationY;
+      this.group.add(sand);
+    }
+    this.group.position.set(cx, deckY, cz);
   }
 
   accumulateEnvironment(
@@ -385,6 +559,8 @@ class FanHazard extends BaseHazard {
   private readonly fz: number;
   private readonly pushX: number;
   private readonly pushZ: number;
+  private fanSpinParts: THREE.Object3D[] = [];
+  private fanAngle = 0;
 
   constructor(
     id: string,
@@ -394,6 +570,7 @@ class FanHazard extends BaseHazard {
     cz: number,
     rotationY: number,
     fanSign: 1 | -1,
+    deckY = 0,
   ) {
     super(id, weight, tileKey);
     const b = tileBasis(rotationY);
@@ -408,8 +585,11 @@ class FanHazard extends BaseHazard {
 
     const fanGlb = assetRegistry.getModelClone("hazard_fan");
     if (fanGlb) {
+      scaleImportedHazardToHorizontalSpan(fanGlb, HAZARD_SPAN_FAN);
       this.group.add(fanGlb);
-      this.group.position.set(cx, 0, cz);
+      this.fanSpinParts = collectFanSpinTargets(fanGlb);
+      this.group.position.set(cx, deckY, cz);
+      this.group.rotation.y = rotationY;
       return;
     }
 
@@ -438,7 +618,16 @@ class FanHazard extends BaseHazard {
       this.group.add(ribbon);
     }
 
-    this.group.position.set(cx, 0, cz);
+    this.group.position.set(cx, deckY, cz);
+  }
+
+  update(dt: number): void {
+    super.update(dt);
+    if (this.fanSpinParts.length === 0) return;
+    this.fanAngle += FAN_GLB_SPIN_RATE * dt;
+    for (const p of this.fanSpinParts) {
+      p.rotation.y = this.fanAngle;
+    }
   }
 
   accumulateEnvironment(
@@ -533,6 +722,7 @@ class BridgeHazard extends BaseHazard {
     cx: number,
     cz: number,
     rotationY: number,
+    deckY = 0,
   ) {
     super(id, weight, tileKey);
     const b = tileBasis(rotationY);
@@ -546,8 +736,9 @@ class BridgeHazard extends BaseHazard {
 
     const bridgeGlb = assetRegistry.getModelClone("hazard_bridge");
     if (bridgeGlb) {
+      scaleImportedHazardToHorizontalSpan(bridgeGlb, HAZARD_SPAN_BRIDGE);
       this.group.add(bridgeGlb);
-      this.group.position.set(cx, 0, cz);
+      this.group.position.set(cx, deckY, cz);
       this.addBridgeHazardSurround(rotationY);
       return;
     }
@@ -562,7 +753,7 @@ class BridgeHazard extends BaseHazard {
 
     this.addBridgeHazardSurround(rotationY);
 
-    this.group.position.set(cx, 0, cz);
+    this.group.position.set(cx, deckY, cz);
   }
 
   checkBridgeOob(ctx: HazardBallContext): boolean {
@@ -600,6 +791,7 @@ class BoostPadHazard extends BaseHazard {
     cx: number,
     cz: number,
     rotationY: number,
+    deckY = 0,
   ) {
     super(id, weight, tileKey);
     const b = tileBasis(rotationY);
@@ -609,6 +801,15 @@ class BoostPadHazard extends BaseHazard {
     this.fz = b.fz;
     this.rx = b.rx;
     this.rz = b.rz;
+
+    const boostModel = assetRegistry.getModelClone("hazard_boost");
+    if (boostModel) {
+      scaleImportedHazardToHorizontalSpan(boostModel, HAZARD_SPAN_BOOST);
+      this.group.add(boostModel);
+      this.group.position.set(cx, deckY, cz);
+      this.group.rotation.y = rotationY;
+      return;
+    }
 
     const arrowMat = boostPadArrowBlue();
     for (let i = -2; i <= 2; i++) {
@@ -637,7 +838,7 @@ class BoostPadHazard extends BaseHazard {
     strip.renderOrder = 1;
     this.group.add(strip);
 
-    this.group.position.set(cx, 0, cz);
+    this.group.position.set(cx, deckY, cz);
     this.group.rotation.y = rotationY;
   }
 
@@ -663,19 +864,47 @@ class BoostPadHazard extends BaseHazard {
   }
 }
 
-class AxeHazard extends BaseHazard {
-  readonly hazardType = "axe";
-  /** Monotonic spin angle (rad) — blade + hit zone stay one direction */
-  private phase = 0;
-  private readonly cx: number;
-  private readonly cz: number;
-  private readonly rx: number;
-  private readonly rz: number;
-  private readonly fx: number;
-  private readonly fz: number;
-  private readonly bladeAnim: THREE.Object3D;
-  private readonly orbitR: number;
-  private readonly spin = 2.15;
+const BUMPER_RADIUS = 1.05;
+const PORTAL_TRIGGER_RADIUS = 1.12;
+const PORTAL_COOLDOWN_SEC = 0.38;
+
+const BUMPER_HIT_PARTICLE_GEO = new THREE.IcosahedronGeometry(0.062, 0);
+const _AXIS_Y = new THREE.Vector3(0, 1, 0);
+
+function bumperSparkMaterial(
+  color: number,
+  opacity: number,
+): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    toneMapped: false,
+  });
+}
+
+interface BumperHitParticle {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  life: number;
+  maxLife: number;
+}
+
+class BumperMushroomHazard extends BaseHazard {
+  readonly hazardType = "bumper_mushroom";
+  private readonly ox: number;
+  private readonly oz: number;
+  /** Meshes live here so we can pulse scale without fighting import scale */
+  private readonly visualRoot = new THREE.Group();
+  private bumpVisualTimer = 0;
+  private readonly bumperParticles: BumperHitParticle[] = [];
+  private readonly scratchOutward = new THREE.Vector3();
+
+  private static readonly BUMP_VISUAL_DURATION = 0.11;
+  private static readonly SPARK_COLORS = [
+    0x7affff, 0xfff44d, 0xffffff, 0xff8cf0,
+  ] as const;
 
   constructor(
     id: string,
@@ -684,53 +913,128 @@ class AxeHazard extends BaseHazard {
     cx: number,
     cz: number,
     rotationY: number,
+    deckY = 0,
   ) {
     super(id, weight, tileKey);
-    const b = tileBasis(rotationY);
-    this.cx = cx;
-    this.cz = cz;
-    this.rx = b.rx;
-    this.rz = b.rz;
-    this.fx = b.fx;
-    this.fz = b.fz;
+    this.ox = cx;
+    this.oz = cz;
 
-    const axeGlb = assetRegistry.getModelClone("hazard_axe");
-    const orbitBase = 1.42 * AXE_SCALE;
-    this.orbitR = axeGlb
-      ? orbitBase * (AXE_GLB_SCALE / AXE_SCALE)
-      : orbitBase;
-    if (axeGlb) {
-      this.group.add(axeGlb);
-      this.bladeAnim =
-        axeGlb.getObjectByName("axeBlade") ?? axeGlb;
-      this.group.scale.setScalar(AXE_GLB_SCALE);
-      this.group.position.set(cx, 0, cz);
-      return;
+    this.visualRoot.name = "bumperMushroomVisual";
+    this.group.add(this.visualRoot);
+
+    const mush =
+      assetRegistry.getModelClone("hazard_bumper_mushroom") ??
+      assetRegistry.getModelClone("decor_small_mushroom");
+    if (mush) {
+      scaleImportedHazardToHorizontalSpan(mush, HAZARD_SPAN_BUMPER);
+      this.visualRoot.add(mush);
+    } else {
+      const cap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.55, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.52),
+        new THREE.MeshStandardMaterial({ color: PSX_SKY_BLUE }),
+      );
+      cap.position.y = 0.38;
+      const stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.32, 0.42, 10),
+        warmCreamStone(),
+      );
+      stem.position.y = 0.14;
+      this.visualRoot.add(stem, cap);
     }
 
-    const blade = new THREE.Mesh(
-      new THREE.BoxGeometry(1.52 * AXE_SCALE, 0.28 * AXE_SCALE, 0.36 * AXE_SCALE),
-      bladeSteel(),
-    );
-    blade.name = "axeBlade";
-    blade.position.set(b.fx * 1.28 * AXE_SCALE, 0.58 * AXE_SCALE, b.fz * 1.28 * AXE_SCALE);
-    this.group.add(blade);
-    this.bladeAnim = blade;
-
-    const pivot = new THREE.Mesh(
-      new THREE.BoxGeometry(0.18 * AXE_SCALE, 0.78 * AXE_SCALE, 0.18 * AXE_SCALE),
-      woodBrown(),
-    );
-    pivot.position.y = 0.92 * AXE_SCALE;
-    this.group.add(pivot);
-
-    this.group.position.set(cx, 0, cz);
+    this.group.position.set(cx, deckY, cz);
+    this.group.rotation.y = rotationY;
   }
 
   update(dt: number): void {
     super.update(dt);
-    this.phase += dt * this.spin;
-    this.bladeAnim.rotation.y = this.phase;
+
+    if (this.bumpVisualTimer > 0) {
+      this.bumpVisualTimer -= dt;
+      const u = Math.max(
+        0,
+        this.bumpVisualTimer / BumperMushroomHazard.BUMP_VISUAL_DURATION,
+      );
+      const pulse = Math.sin(u * Math.PI);
+      const stretch = pulse * 0.14;
+      /** Brief pinball “pop”: widen in XZ, slight squash on Y */
+      this.visualRoot.scale.set(
+        1 + stretch * 1.12,
+        1 - stretch * 0.22,
+        1 + stretch * 1.12,
+      );
+    } else {
+      this.visualRoot.scale.set(1, 1, 1);
+    }
+
+    for (let i = this.bumperParticles.length - 1; i >= 0; i--) {
+      const p = this.bumperParticles[i]!;
+      p.life -= dt;
+      p.velocity.y -= 6.2 * dt;
+      p.mesh.position.addScaledVector(p.velocity, dt);
+      p.mesh.rotation.x += dt * 6.2;
+      p.mesh.rotation.z += dt * 5.4;
+      const u = Math.max(0, p.life / p.maxLife);
+      p.mesh.scale.setScalar(0.42 + u * 0.95);
+      (p.mesh.material as THREE.MeshBasicMaterial).opacity = u * 0.94;
+      if (p.life <= 0) {
+        this.group.remove(p.mesh);
+        (p.mesh.material as THREE.Material).dispose();
+        this.bumperParticles.splice(i, 1);
+      }
+    }
+  }
+
+  private spawnBumperHitParticles(worldNx: number, worldNz: number): void {
+    const capY = 0.38;
+    const count = 16;
+    this.scratchOutward
+      .set(worldNx, 0, worldNz)
+      .applyAxisAngle(_AXIS_Y, -this.group.rotation.y);
+
+    const ox = this.scratchOutward.x;
+    const oz = this.scratchOutward.z;
+    const oLen = Math.hypot(ox, oz) || 1;
+    const lx = ox / oLen;
+    const lz = oz / oLen;
+
+    for (let i = 0; i < count; i++) {
+      const spread = 1.25;
+      const burst = 2.4 + Math.random() * 3.2;
+      const vx = lx * burst + (Math.random() - 0.5) * spread;
+      const vz = lz * burst + (Math.random() - 0.5) * spread;
+      const vy = 1.15 + Math.random() * 2.55;
+      const c =
+        BumperMushroomHazard.SPARK_COLORS[
+          i % BumperMushroomHazard.SPARK_COLORS.length
+        ]!;
+      const mat = bumperSparkMaterial(c, 0.94);
+      const mesh = new THREE.Mesh(BUMPER_HIT_PARTICLE_GEO, mat);
+      mesh.renderOrder = 4;
+      mesh.position.set(
+        (Math.random() - 0.5) * 0.12,
+        capY + Math.random() * 0.14,
+        (Math.random() - 0.5) * 0.12,
+      );
+      mesh.scale.setScalar(0.55 + Math.random() * 0.75);
+      this.group.add(mesh);
+      const life = 0.38 + Math.random() * 0.28;
+      this.bumperParticles.push({
+        mesh,
+        velocity: new THREE.Vector3(vx, vy, vz),
+        life,
+        maxLife: life,
+      });
+    }
+  }
+
+  dispose(): void {
+    for (const p of this.bumperParticles) {
+      this.group.remove(p.mesh);
+      (p.mesh.material as THREE.Material).dispose();
+    }
+    this.bumperParticles.length = 0;
+    super.dispose();
   }
 
   resolveImpulses(
@@ -739,35 +1043,258 @@ class AxeHazard extends BaseHazard {
     _dt: number,
   ): boolean {
     void _dt;
-    const c = Math.cos(this.phase);
-    const s = Math.sin(this.phase);
-    const bx =
-      this.cx + this.orbitR * (c * this.rx + s * this.fx);
-    const bz =
-      this.cz + this.orbitR * (c * this.rz + s * this.fz);
-
-    const dx = ctx.position.x - bx;
-    const dz = ctx.position.z - bz;
+    const dx = ctx.position.x - this.ox;
+    const dz = ctx.position.z - this.oz;
     const dist = Math.hypot(dx, dz);
-    if (dist > ctx.radius + 0.68) return false;
+    const hitR = BUMPER_RADIUS + ctx.radius * 0.85;
+    if (dist > hitR || dist < 1e-4) return false;
     if (!this.canRegisterHit()) return false;
 
-    /** Bounce backward along -forward */
-    const backX = -this.fx;
-    const backZ = -this.fz;
-    const speed = 15;
-    physics.velocity.x = backX * speed;
-    physics.velocity.z = backZ * speed;
+    const nx = dx / dist;
+    const nz = dz / dist;
+    const pen = hitR - dist;
+    if (pen > 0) {
+      ctx.position.x += nx * pen;
+      ctx.position.z += nz * pen;
+    }
 
-    ctx.position.x += backX * ctx.radius * 0.35;
-    ctx.position.z += backZ * ctx.radius * 0.35;
-    this.markHit(0.42);
+    const vx = physics.velocity.x;
+    const vz = physics.velocity.z;
+    const vn = vx * nx + vz * nz;
+    const rest = 1.22;
+    physics.velocity.x -= (1 + rest) * vn * nx;
+    physics.velocity.z -= (1 + rest) * vn * nz;
+    const bump = 7.85;
+    physics.velocity.x += nx * bump;
+    physics.velocity.z += nz * bump;
+
+    this.bumpVisualTimer = BumperMushroomHazard.BUMP_VISUAL_DURATION;
+    this.spawnBumperHitParticles(nx, nz);
+
+    this.markHit(0.14);
     return true;
+  }
+}
+
+class PortalGateHazard extends BaseHazard {
+  readonly hazardType = "portal_gate";
+  private static readonly pairCooldownUntilSec = new Map<string, number>();
+
+  private readonly ox: number;
+  private readonly oz: number;
+  private readonly rx: number;
+  private readonly rz: number;
+  private readonly fx: number;
+  private readonly fz: number;
+  private readonly exitX?: number;
+  private readonly exitZ?: number;
+  private readonly exitY?: number;
+  private readonly exitFx?: number;
+  private readonly exitFz?: number;
+  private readonly portalPairId?: string;
+  private readonly portalMode: "pair" | "finish";
+  /** Two single-sided discs share the live portal texture (clone+DoubleSide stayed white — texture loads on singleton only). */
+  private readonly portalSwirlRoot: THREE.Group;
+  private readonly portalSwirlGeometry: THREE.BufferGeometry;
+  private swirlAngle = 0;
+
+  constructor(
+    id: string,
+    weight: number,
+    tileKey: string,
+    ox: number,
+    oz: number,
+    rotationY: number,
+    deckY: number,
+    portalMode: "pair" | "finish",
+    exitX?: number,
+    exitZ?: number,
+    exitY?: number,
+    exitFx?: number,
+    exitFz?: number,
+    portalPairId?: string,
+  ) {
+    super(id, weight, tileKey);
+    const b = tileBasis(rotationY);
+    this.ox = ox;
+    this.oz = oz;
+    this.rx = b.rx;
+    this.rz = b.rz;
+    this.fx = b.fx;
+    this.fz = b.fz;
+    this.exitX = exitX;
+    this.exitZ = exitZ;
+    this.exitY = exitY;
+    this.exitFx = exitFx;
+    this.exitFz = exitFz;
+    this.portalPairId = portalPairId;
+    this.portalMode = portalMode;
+
+    const portalGlb = assetRegistry.getModelClone("hazard_portal_gate");
+    if (portalGlb) {
+      scaleImportedHazardToHorizontalSpan(portalGlb, HAZARD_SPAN_PORTAL);
+      this.group.add(portalGlb);
+    } else {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.72, 0.09, 10, 28),
+        new THREE.MeshBasicMaterial({
+          color: 0x8b5cff,
+          transparent: true,
+          opacity: 0.92,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.06;
+      this.group.add(ring);
+      const inner = new THREE.Mesh(
+        new THREE.CircleGeometry(0.62, 28),
+        new THREE.MeshBasicMaterial({
+          color: 0x4b2066,
+          transparent: true,
+          opacity: 0.42,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      );
+      inner.rotation.x = -Math.PI / 2;
+      inner.position.y = 0.062;
+      this.group.add(inner);
+    }
+
+    const swirlMat = holeCupPortalSurfaceMaterial();
+    this.portalSwirlGeometry = new THREE.CircleGeometry(0.98, 40);
+    const swirlFront = new THREE.Mesh(this.portalSwirlGeometry, swirlMat);
+    swirlFront.name = "PortalGateSwirlFront";
+    const swirlBack = new THREE.Mesh(this.portalSwirlGeometry, swirlMat);
+    swirlBack.name = "PortalGateSwirlBack";
+    /** Face −local Z so the same texture reads from behind (no material clone). */
+    swirlBack.rotation.y = Math.PI;
+
+    this.portalSwirlRoot = new THREE.Group();
+    this.portalSwirlRoot.name = "PortalGateSwirlRoot";
+    this.portalSwirlRoot.add(swirlFront);
+    this.portalSwirlRoot.add(swirlBack);
+    /** Vertical disc (XY); deeper −local Z, lower Y, larger radius than prior tweaks */
+    this.portalSwirlRoot.position.set(
+      0,
+      HAZARD_SPAN_PORTAL * 0.34 - 0.18,
+      -0.24,
+    );
+    this.portalSwirlRoot.renderOrder = 5;
+    this.group.add(this.portalSwirlRoot);
+
+    this.group.position.set(ox, deckY, oz);
+    this.group.rotation.y = rotationY;
+  }
+
+  update(dt: number): void {
+    super.update(dt);
+    this.swirlAngle += dt * 1.55;
+    this.portalSwirlRoot.rotation.z = this.swirlAngle;
+  }
+
+  private static pairCooldownExpired(pairId: string): boolean {
+    const now = performance.now() * 0.001;
+    const until = PortalGateHazard.pairCooldownUntilSec.get(pairId) ?? 0;
+    return now >= until;
+  }
+
+  private static armPairCooldown(pairId: string): void {
+    const now = performance.now() * 0.001;
+    PortalGateHazard.pairCooldownUntilSec.set(pairId, now + PORTAL_COOLDOWN_SEC);
+  }
+
+  tryPortal(
+    ctx: HazardBallContext,
+    physics: SimpleBallPhysics,
+  ): PortalTriggerResult {
+    if (
+      this.portalMode === "pair" &&
+      (!this.portalPairId || !PortalGateHazard.pairCooldownExpired(this.portalPairId))
+    ) {
+      return false;
+    }
+
+    const loc = worldToLocalXZ(
+      ctx.position.x,
+      ctx.position.z,
+      this.ox,
+      this.oz,
+      this.rx,
+      this.rz,
+      this.fx,
+      this.fz,
+    );
+    const r = Math.hypot(loc.lx, loc.lz);
+    if (r > PORTAL_TRIGGER_RADIUS + ctx.radius * 0.55) return false;
+
+    if (this.portalMode === "finish") {
+      ctx.position.x = this.ox;
+      ctx.position.z = this.oz;
+      const sy = physics.surfaceHeightAt(ctx.position.x, ctx.position.z);
+      ctx.position.y = sy ?? ctx.position.y;
+      physics.velocity.set(0, 0, 0);
+      return "finish";
+    }
+
+    if (
+      this.exitX === undefined ||
+      this.exitZ === undefined ||
+      this.exitY === undefined ||
+      this.exitFx === undefined ||
+      this.exitFz === undefined ||
+      !this.portalPairId
+    ) {
+      return false;
+    }
+
+    const push = TILE_SIZE * 0.24;
+    ctx.position.x = this.exitX + this.exitFx * push;
+    ctx.position.z = this.exitZ + this.exitFz * push;
+
+    const sy = physics.surfaceHeightAt(ctx.position.x, ctx.position.z);
+    if (sy !== null) {
+      ctx.position.y = sy;
+    } else {
+      ctx.position.y = this.exitY;
+    }
+
+    PortalGateHazard.armPairCooldown(this.portalPairId);
+    return "teleport";
+  }
+
+  dispose(): void {
+    this.group.remove(this.portalSwirlRoot);
+    this.portalSwirlGeometry.dispose();
+    super.dispose();
   }
 }
 
 function tileKey(t: { gridX: number; gridZ: number }): string {
   return `${t.gridX},${t.gridZ}`;
+}
+
+function findPortalPartnerSpec(
+  specs: readonly HazardSpawnSpec[],
+  self: HazardSpawnSpec,
+): HazardSpawnSpec | undefined {
+  if (
+    self.kind !== "portal_gate" ||
+    !self.portalPairId ||
+    self.portalRole === undefined
+  ) {
+    return undefined;
+  }
+  return specs.find(
+    (s) =>
+      s.kind === "portal_gate" &&
+      s.portalPairId === self.portalPairId &&
+      s.portalRole !== undefined &&
+      s.portalRole !== self.portalRole &&
+      s.tileIndex !== self.tileIndex,
+  );
 }
 
 export function createHazardInstances(
@@ -776,6 +1303,7 @@ export function createHazardInstances(
     gridX: number;
     gridZ: number;
     worldX: number;
+    worldY?: number;
     worldZ: number;
     railOriginX?: number;
     railOriginZ?: number;
@@ -792,14 +1320,15 @@ export function createHazardInstances(
     const cx = tile.railOriginX ?? tile.worldX;
     const cz = tile.railOriginZ ?? tile.worldZ;
     const rot = tile.rotationY;
+    const deckY = tile.worldY ?? 0;
 
     let h: HazardInstance;
     switch (spec.kind) {
       case "windmill":
-        h = new WindmillHazard(spec.id, spec.weight, key, cx, cz, rot);
+        h = new WindmillHazard(spec.id, spec.weight, key, cx, cz, rot, deckY);
         break;
       case "sandpit":
-        h = new SandpitHazard(spec.id, spec.weight, key, cx, cz, rot);
+        h = new SandpitHazard(spec.id, spec.weight, key, cx, cz, rot, deckY);
         break;
       case "fan":
         h = new FanHazard(
@@ -810,17 +1339,76 @@ export function createHazardInstances(
           cz,
           rot,
           spec.fanSign ?? 1,
+          deckY,
         );
         break;
       case "bridge":
-        h = new BridgeHazard(spec.id, spec.weight, key, cx, cz, rot);
+        h = new BridgeHazard(spec.id, spec.weight, key, cx, cz, rot, deckY);
         break;
       case "boost":
-        h = new BoostPadHazard(spec.id, spec.weight, key, cx, cz, rot);
+        h = new BoostPadHazard(spec.id, spec.weight, key, cx, cz, rot, deckY);
         break;
-      case "axe":
-        h = new AxeHazard(spec.id, spec.weight, key, cx, cz, rot);
+      case "bumper_mushroom":
+        h = new BumperMushroomHazard(
+          spec.id,
+          spec.weight,
+          key,
+          cx,
+          cz,
+          rot,
+          deckY,
+        );
         break;
+      case "portal_gate": {
+        const px = spec.portalSpawnWorldX ?? cx;
+        const pz = spec.portalSpawnWorldZ ?? cz;
+        const pDeckY = spec.portalSpawnDeckY ?? deckY;
+        const portalRot =
+          (spec.portalSpawnRotationY ?? rot) + Math.PI;
+        if (spec.portalMode === "finish") {
+          h = new PortalGateHazard(
+            spec.id,
+            spec.weight,
+            key,
+            px,
+            pz,
+            portalRot,
+            pDeckY,
+            "finish",
+          );
+          break;
+        }
+        const partner = findPortalPartnerSpec(specs, spec);
+        if (!partner) continue;
+        const exitTile = tiles[partner.tileIndex];
+        if (!exitTile) continue;
+        const exitX =
+          partner.portalSpawnWorldX ??
+          (exitTile.railOriginX ?? exitTile.worldX);
+        const exitZ =
+          partner.portalSpawnWorldZ ??
+          (exitTile.railOriginZ ?? exitTile.worldZ);
+        const exitY = partner.portalSpawnDeckY ?? (exitTile.worldY ?? 0);
+        const bOut = tileBasis(exitTile.rotationY);
+        if (!spec.portalPairId) continue;
+        h = new PortalGateHazard(
+          spec.id,
+          spec.weight,
+          key,
+          px,
+          pz,
+          portalRot,
+          pDeckY,
+          "pair",
+          exitX,
+          exitZ,
+          exitY,
+          bOut.fx,
+          bOut.fz,
+          spec.portalPairId,
+        );
+        break;
+      }
       default: {
         const _: never = spec.kind;
         void _;

@@ -143,12 +143,3 @@ export function updateDecorCameraOcclusion(
     );
   }
 }
-
-/** @deprecated Use {@link updateDecorCameraOcclusion} with `[group]`. */
-export function updateIslandDecorOcclusionFromCameraBall(
-  camera: THREE.Camera,
-  ballWorld: THREE.Vector3,
-  decorGroup: THREE.Group | null,
-): void {
-  updateDecorCameraOcclusion(camera, ballWorld, [decorGroup], 1);
-}
