@@ -30,13 +30,8 @@ const ISLAND_SURFACE_BIAS_Y = -0.12;
  */
 const DECOR_GROUND_PENETRATION_Y = 0.38;
 
-/**
- * Extra downward shift for the large fan / tree cluster GLB (wide base vs floor).
- */
-const FAN_CLUSTER_EXTRA_SINK_Y = 1.62;
-
 /** Minimum gap between inscribed decor footprint disks (world units). */
-const DECOR_DISK_CLEARANCE = 1.12;
+const DECOR_DISK_CLEARANCE = 1.26;
 
 /** Extra fudge on bbox half-extent after scale (XZ). */
 const FOOTPRINT_RADIAL_FUDGE = 0.42;
@@ -202,25 +197,33 @@ function isLargeIslandCanopyDecor(key: DecorKey): boolean {
 }
 
 /**
- * Oriented ellipse under the slot — matches how {@link buildUndermapIslandGroup} scales the mesh
- * (rotationY + scaleAxisMul). Used so ground Y is never island-height unless XZ is actually over the pad.
+ * Axis-aligned square in world XZ around the slot center. Half-edge length is derived only from
+ * {@link UndermapIslandSlot.halfWidthWorld} (same signal as slot layout) — no mesh sampling.
  */
-function xzInsideUndermapSlotFootprint(
+const ISLAND_DECOR_SQUARE_HALF_MUL = 0.6;
+
+function islandDecorSquareHalfExtent(slot: UndermapIslandSlot): number {
+  return slot.halfWidthWorld * ISLAND_DECOR_SQUARE_HALF_MUL;
+}
+
+/**
+ * Undermap pads sit under tiles — the full fairway exclusion radius is often larger than any point on
+ * the pad can achieve vs tile centers, so rim sampling would never succeed. Cap clearance so props can
+ * still spawn on the slab while staying modestly away from deck projection.
+ */
+function clampDeckClearanceForIslandDecor(
+  requestedMinDist: number,
   slot: UndermapIslandSlot,
-  x: number,
-  z: number,
-): boolean {
-  const dx = x - slot.x;
-  const dz = z - slot.z;
-  const c = Math.cos(-slot.rotationY);
-  const sn = Math.sin(-slot.rotationY);
-  const lx = dx * c - dz * sn;
-  const lz = dx * sn + dz * c;
-  const ax = slot.scaleAxisMul?.x ?? 1;
-  const az = slot.scaleAxisMul?.z ?? 1;
-  const rx = Math.max(0.45, slot.halfWidthWorld * 0.92 * ax);
-  const rz = Math.max(0.45, slot.halfWidthWorld * 0.92 * az);
-  return (lx * lx) / (rx * rx) + (lz * lz) / (rz * rz) <= 1;
+): number {
+  const h = islandDecorSquareHalfExtent(slot);
+  /** Slightly higher floor/ceiling so props sit a tad further from tile projection when the pad allows. */
+  const cap = Math.max(TILE_SIZE * 0.56 + 0.48, h * 0.6 + 0.58);
+  return Math.min(requestedMinDist, cap);
+}
+
+function xzInsideIslandAxisSquare(slot: UndermapIslandSlot, x: number, z: number): boolean {
+  const h = islandDecorSquareHalfExtent(slot);
+  return Math.abs(x - slot.x) <= h && Math.abs(z - slot.z) <= h;
 }
 
 function trySampleNearIsland(
@@ -229,16 +232,11 @@ function trySampleNearIsland(
   rng: () => number,
   maxAttempts: number,
 ): { x: number; z: number } | null {
+  const h = islandDecorSquareHalfExtent(slot);
   for (let a = 0; a < maxAttempts; a++) {
-    const ang = rng() * Math.PI * 2;
-    /** Footprint clip guarantees Y snap matches visible mesh — radius can stay generous. */
-    const rad = slot.halfWidthWorld * (0.28 + rng() * 0.44);
-    const x = slot.x + Math.cos(ang) * rad;
-    const z = slot.z + Math.sin(ang) * rad;
-    if (
-      isOutsidePlayableRoute(x, z, level) &&
-      xzInsideUndermapSlotFootprint(slot, x, z)
-    ) {
+    const x = slot.x + (rng() * 2 - 1) * h;
+    const z = slot.z + (rng() * 2 - 1) * h;
+    if (isOutsidePlayableRoute(x, z, level)) {
       return { x, z };
     }
   }
@@ -246,8 +244,9 @@ function trySampleNearIsland(
 }
 
 /**
- * Island-only décor: stay ≥ `minDistFromDeckCenter` from decks but **bias inward** so props sit on the
- * mesh near the fairway instead of the outer rim (where they read as floating).
+ * Organic placement: polar-ish samples with per-axis stretch and jitter so trunks do not sit on a
+ * perfect ring. Biased **well out from the slot center** with **strong distance variance** (wide annulus,
+ * not a tight band).
  */
 function trySampleIslandRimClearOfDecks(
   slot: UndermapIslandSlot,
@@ -255,31 +254,31 @@ function trySampleIslandRimClearOfDecks(
   rng: () => number,
   maxAttempts: number,
   minDistFromDeckCenter: number,
-  decorKey: DecorKey,
+  _decorKey: DecorKey,
 ): { x: number; z: number } | null {
-  const large = isLargeIslandCanopyDecor(decorKey);
-  const lo = 0.22;
-  /** World polar radius cap; footprint ellipse removes rim floats — no need to starve placement here. */
-  const hi = Math.max(
-    lo + 0.18,
-    Math.min(
-      slot.halfWidthWorld * (large ? 0.72 : 0.8),
-      TILE_SIZE * 1.9,
-    ),
-  );
-  if (hi <= lo + 0.12) return null;
-
-  const needSq = minDistFromDeckCenter * minDistFromDeckCenter;
+  void _decorKey;
+  const h = islandDecorSquareHalfExtent(slot);
+  const capDist = clampDeckClearanceForIslandDecor(minDistFromDeckCenter, slot);
   for (let a = 0; a < maxAttempts; a++) {
-    const ang = rng() * Math.PI * 2;
-    const frac = Math.pow(rng(), large ? 1.38 : 1.22);
-    const rad = lo + (hi - lo) * frac;
-    const x = slot.x + Math.cos(ang) * rad;
-    const z = slot.z + Math.sin(ang) * rad;
-    if (
-      minDistSqToTiles(x, z, level) >= needSq &&
-      xzInsideUndermapSlotFootprint(slot, x, z)
-    ) {
+    /** Wider per-attempt deck clearance band so distance-from-deck and distance-from-center both vary. */
+    const needDist = capDist * (0.88 + rng() * 0.12);
+    const needSq = needDist * needDist;
+    const u = rng() * Math.PI * 2;
+    /**
+     * Normalized radius along ellipse axes before jitter — floor pushed outward vs older 0.5…0.94 band.
+     * `pow(rng(), e)` with e < 1 spreads samples across shallow/mid/deep annulus instead of clumping mid.
+     */
+    const radialCore = 0.7 + Math.pow(rng(), 0.48) * 0.26;
+    const radialWobble = (rng() - 0.5) * 0.14;
+    const radialT = THREE.MathUtils.clamp(radialCore + radialWobble, 0.62, 0.99);
+    const ax = 0.74 + rng() * 0.36;
+    const az = 0.74 + rng() * 0.36;
+    let x = slot.x + Math.cos(u) * h * radialT * ax;
+    let z = slot.z + Math.sin(u) * h * radialT * az;
+    x += (rng() - 0.5) * h * 0.18;
+    z += (rng() - 0.5) * h * 0.18;
+    if (!xzInsideIslandAxisSquare(slot, x, z)) continue;
+    if (minDistSqToTiles(x, z, level) >= needSq) {
       return { x, z };
     }
   }
@@ -292,8 +291,8 @@ function voidShelfGroundY(rng: () => number): number {
 }
 
 /**
- * Island top Y only when XZ lies on the pad footprint — breaks the loop between “tight reach → no décor”
- * and “loose reach → props floating with no mesh”.
+ * Island top Y when (x,z) lies in the axis-aligned placement square of a slot (see
+ * {@link islandDecorSquareHalfExtent}).
  */
 function resolveDecorGroundY(
   x: number,
@@ -304,7 +303,7 @@ function resolveDecorGroundY(
   let bestY = shelfFallback;
   let bestD = Infinity;
   for (const s of slots) {
-    if (!xzInsideUndermapSlotFootprint(s, x, z)) continue;
+    if (!xzInsideIslandAxisSquare(s, x, z)) continue;
     const d = Math.hypot(x - s.x, z - s.z);
     if (d < bestD) {
       bestD = d;
@@ -399,7 +398,7 @@ function tryPlaceDecor(
             slot,
             level,
             rng,
-            isLargeIslandCanopyDecor(key) ? 840 : 620,
+            isLargeIslandCanopyDecor(key) ? 1100 : 720,
             effectiveIslandsOnlyDeckClearance(key, rPre, slot),
             key,
           )
@@ -462,9 +461,13 @@ function tryPlaceDecor(
 
     if (islandsOnly) {
       const anchor = nearestSlotToXZ(slots, sample.x, sample.z);
-      const needDist = anchor
+      const rawNeed = anchor
         ? effectiveIslandsOnlyDeckClearance(key, rPost, anchor)
         : islandsOnlyMinDistFromDecks(key, rPost);
+      /** Match sampler: allow the lower end of the per-attempt clearance band so accepted trees are not rejected here. */
+      const needDist = anchor
+        ? clampDeckClearanceForIslandDecor(rawNeed, anchor) * 0.93
+        : rawNeed;
       if (!isFarEnoughFromAllTileDecks(sample.x, sample.z, level, needDist)) {
         disposeDecorClone(node);
         continue;
@@ -487,9 +490,17 @@ export interface IslandDecorScatterOptions {
   islandsOnly?: boolean;
 }
 
+const PINE_DECOR_KEY = "decor_fantasy_pine_tree" as const;
+const CRYSTAL_DECOR_KEY = "decor_fantasy_crystal_rock" as const;
+const MUSHROOM_DECOR_KEY = "decor_small_mushroom" as const;
+
 /**
  * Scatter fantasy props around under-island masses and in a wide ring off the tile deck.
  * Never parents into the course group — visual-only, no gameplay coupling.
+ *
+ * Places pine silhouettes, crystal clusters, and small fantasy mushrooms; use
+ * {@link IslandDecorScatterOptions.islandsOnly} so props stay on slot meshes (no void ring) when the game
+ * has undermap slots.
  */
 export function createIslandSurroundDecor(
   level: GeneratedLevel,
@@ -499,114 +510,118 @@ export function createIslandSurroundDecor(
   const group = new THREE.Group();
   group.name = "IslandSurroundDecor";
 
-  const anyReady = ISLAND_DECOR_ASSET_KEYS.some((k) => assetRegistry.isReady(k));
-  if (!anyReady) return group;
+  if (slots.length === 0) return group;
+  if (
+    !assetRegistry.isReady(PINE_DECOR_KEY) &&
+    !assetRegistry.isReady(CRYSTAL_DECOR_KEY) &&
+    !assetRegistry.isReady(MUSHROOM_DECOR_KEY)
+  ) {
+    return group;
+  }
 
-  const islandsOnly = Boolean(options?.islandsOnly);
-
-  const seedStr = `${level.procgenSeed ?? level.id}|${level.levelIndex}|decorScatter`;
-  const rng = mulberry32(hashString(seedStr));
-
-  const b = level.bounds;
-  const span = Math.max(
-    24,
-    b.maxX - b.minX,
-    b.maxZ - b.minZ,
+  const rngPine = mulberry32(
+    hashString(`${level.id}|${level.levelIndex}|islandDecorPine`),
   );
-  let density = Math.max(0.55, Math.min(1.25, span / 40));
-  if (islandsOnly && slots.length > 0) {
-    density *= Math.max(0.32, Math.min(1.05, slots.length / 5));
-  }
-
-  const nMush = Math.round(5 * density);
-  const nCrystal = Math.round(4 * density);
-  /** More pines; spacing + retries cap how many actually land. */
-  const nTree = 6 + Math.round(9 * density);
-  const nFan = Math.min(2, Math.round(1.25 * density));
-
-  /** Deep void shelf when props miss every support island (see {@link resolveDecorGroundY}). */
-  const shelfGround = (): number => voidShelfGroundY(rng);
-
-  type Job = {
-    key: DecorKey;
-    h: number;
-    shadow: "full" | "receiveOnly" | "none";
-    preferIsland: boolean;
-    /** Fallback / off-mesa shelf height only */
-    shelfGround: () => number;
-    extraSinkY: number;
-  };
-
-  const jobs: Job[] = [];
-
-  for (let i = 0; i < nMush; i++) {
-    jobs.push({
-      key: "decor_small_mushroom",
-      h: 0.55 + rng() * 0.62,
-      shadow: "full",
-      preferIsland: true,
-      shelfGround,
-      extraSinkY: 0,
-    });
-  }
-  for (let i = 0; i < nCrystal; i++) {
-    jobs.push({
-      key: "decor_fantasy_crystal_rock",
-      h: 1.25 + rng() * 1.75,
-      shadow: "full",
-      preferIsland: true,
-      shelfGround,
-      extraSinkY: 0,
-    });
-  }
-  for (let i = 0; i < nTree; i++) {
-    jobs.push({
-      key: "decor_fantasy_pine_tree",
-      h: 5.0 + rng() * 5.8,
-      shadow: "full",
-      preferIsland: true,
-      shelfGround,
-      extraSinkY: 0,
-    });
-  }
-  for (let i = 0; i < nFan; i++) {
-    jobs.push({
-      key: "decor_fan_cluster",
-      h: 8.5 + rng() * 4.5,
-      shadow: "full",
-      preferIsland: true,
-      shelfGround,
-      extraSinkY: FAN_CLUSTER_EXTRA_SINK_Y,
-    });
-  }
-
-  /** Fisher–Yates shuffle job order so clustering isn’t type-sorted */
-  for (let i = jobs.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    const tmp = jobs[i]!;
-    jobs[i] = jobs[j]!;
-    jobs[j] = tmp;
-  }
-
+  const rngCrystal = mulberry32(
+    hashString(`${level.id}|${level.levelIndex}|islandDecorCrystal`),
+  );
+  const rngMushroom = mulberry32(
+    hashString(`${level.id}|${level.levelIndex}|islandDecorMushroom`),
+  );
+  const islandsOnly = options?.islandsOnly ?? false;
   const placed: { x: number; z: number; r: number }[] = [];
-  const placeAttempts = 520;
+  const shelfGroundY = voidShelfGroundY(rngPine);
+  /** World height after uniform scale — large silhouettes on undermap slabs. */
+  const pineTargetHeight = 6.75;
+  const maxAttemptsPerPlace = 34;
+  const maxTrees = Math.min(32, Math.max(5, Math.ceil(slots.length * 2.35)));
+  const tryBudget = Math.min(120, Math.max(22, slots.length * 28));
 
-  for (const job of jobs) {
-    const node = tryPlaceDecor(
-      job.key,
-      level,
-      slots,
-      rng,
-      job.h,
-      job.shadow,
-      job.preferIsland,
-      job.shelfGround(),
-      job.extraSinkY,
-      placed,
-      placeAttempts,
-      islandsOnly,
-    );
-    if (node) group.add(node);
+  if (assetRegistry.isReady(PINE_DECOR_KEY)) {
+    for (
+      let placedCount = 0, tries = 0;
+      placedCount < maxTrees && tries < tryBudget;
+      tries++
+    ) {
+      const node = tryPlaceDecor(
+        PINE_DECOR_KEY,
+        level,
+        slots,
+        rngPine,
+        pineTargetHeight,
+        "full",
+        true,
+        shelfGroundY,
+        0,
+        placed,
+        maxAttemptsPerPlace,
+        islandsOnly,
+      );
+      if (node) {
+        group.add(node);
+        placedCount++;
+      }
+    }
+  }
+
+  if (assetRegistry.isReady(CRYSTAL_DECOR_KEY)) {
+    const maxCrystals = Math.min(16, Math.max(3, Math.ceil(slots.length * 0.92)));
+    const crystalTryBudget = Math.min(72, Math.max(14, slots.length * 16));
+    for (
+      let placedCount = 0, tries = 0;
+      placedCount < maxCrystals && tries < crystalTryBudget;
+      tries++
+    ) {
+      const crystalHeight = 1.45 + rngCrystal() * 0.85;
+      const node = tryPlaceDecor(
+        CRYSTAL_DECOR_KEY,
+        level,
+        slots,
+        rngCrystal,
+        crystalHeight,
+        "full",
+        true,
+        shelfGroundY,
+        0,
+        placed,
+        maxAttemptsPerPlace,
+        islandsOnly,
+      );
+      if (node) {
+        group.add(node);
+        placedCount++;
+      }
+    }
+  }
+
+  if (assetRegistry.isReady(MUSHROOM_DECOR_KEY)) {
+    const maxMushrooms = Math.min(26, Math.max(5, Math.ceil(slots.length * 1.2)));
+    const mushroomTryBudget = Math.min(96, Math.max(18, slots.length * 22));
+    for (
+      let placedCount = 0, tries = 0;
+      placedCount < maxMushrooms && tries < mushroomTryBudget;
+      tries++
+    ) {
+      const h = 0.42 + rngMushroom() * 0.58;
+      const node = tryPlaceDecor(
+        MUSHROOM_DECOR_KEY,
+        level,
+        slots,
+        rngMushroom,
+        h,
+        "full",
+        true,
+        shelfGroundY,
+        0,
+        placed,
+        maxAttemptsPerPlace,
+        islandsOnly,
+      );
+      if (node) {
+        group.add(node);
+        placedCount++;
+      }
+    }
   }
 
   return group;

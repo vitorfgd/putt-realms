@@ -54,21 +54,6 @@ body {
   z-index: 9000;
 }
 
-.overlay-pause-button {
-  position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
-  right: calc(14px + env(safe-area-inset-right));
-  pointer-events: auto;
-  border: 2px solid #ffe08a;
-  border-radius: 999px;
-  padding: 8px 13px;
-  color: #fff8da;
-  background: rgba(17, 34, 62, 0.82);
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28);
-}
-
 .overlay-panel {
   position: absolute;
   inset: 0;
@@ -139,6 +124,11 @@ body {
   font-size: 13px;
 }
 
+.overlay-muted--tight {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
 .overlay-eyebrow {
   display: inline-block;
   color: #b8ff9a;
@@ -159,8 +149,98 @@ body {
   font-weight: 850;
 }
 
-.route-card {
+/* New-map intro: no dimmed overlay — only the frame + text (see `process:realm-run-frame` for interior alpha). */
+.game-overlays > .overlay-panel.route-panel {
+  background-color: transparent !important;
+  background-image: none !important;
+  overflow: visible;
+}
+
+.realm-route {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: min(100vw, calc(100vh * 10 / 18));
+  margin-inline: auto;
+  box-sizing: border-box;
+  padding-inline: clamp(4px, 1.2vw, 10px);
   transform: translateY(-8vh);
+}
+
+.realm-route__frame {
+  position: relative;
+  width: 100%;
+  max-width: min(404px, calc(min(100vw, 100vh * 10 / 18) * 0.94));
+  margin-inline: auto;
+  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.42));
+}
+
+/**
+ * Same width as source art (967×348); slot ~28% taller (clear stretch vs native aspect).
+ * Picture shifts down slightly; text stays on the frame box (see `.realm-route__text`).
+ */
+.realm-route__picture {
+  display: block;
+  width: 100%;
+  aspect-ratio: 967 / 445;
+  position: relative;
+  transform: translateY(14px);
+}
+
+.realm-route__bg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  user-select: none;
+  pointer-events: none;
+}
+
+.realm-route__text {
+  position: absolute;
+  left: 11%;
+  right: 11%;
+  top: 24%;
+  bottom: 20%;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(4px, 1.8vw, 10px);
+  text-align: center;
+  box-sizing: border-box;
+  padding: 0 clamp(6px, 2vw, 14px);
+  pointer-events: none;
+}
+
+.realm-route__realm {
+  margin: 0;
+  font-size: clamp(20px, 5.4vw, 30px);
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  color: #ffecc4;
+  text-shadow:
+    0 2px 0 rgba(0, 0, 0, 0.5),
+    0 0 18px rgba(0, 0, 0, 0.35);
+}
+
+.realm-route__meta {
+  margin: 0;
+  color: rgba(230, 244, 255, 0.88);
+  font-size: clamp(12px, 3.2vw, 15px);
+  font-weight: 800;
+  line-height: 1.35;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+.realm-route__meta strong {
+  color: #fff4c8;
+  font-weight: 950;
 }
 
 .tutorial-panel {
@@ -235,28 +315,228 @@ body {
   border-color: #ff89b5;
 }
 
-.summary-grid {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px 16px;
-  margin: 16px 0;
-  text-align: left;
-}
-
-.summary-grid span {
-  color: rgba(240, 250, 255, 0.78);
-  font-weight: 800;
-}
-
-.summary-grid strong {
-  color: #ffe08a;
-  font-size: 20px;
-}
-
 .overlay-reward {
   margin: 10px 0;
   color: #b8ff9a;
   font-weight: 950;
+}
+
+/* ——— Run summary (hole complete) ——— */
+
+.run-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-height: min(84vh, 640px);
+}
+
+.run-summary__visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.run-summary__frame {
+  position: relative;
+  width: min(88vw, 420px);
+  max-width: 420px;
+  overflow: hidden;
+  border-radius: 8px;
+  filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.38));
+}
+
+.run-summary__bg {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: top;
+  user-select: none;
+  pointer-events: none;
+}
+
+.run-summary__stats {
+  position: absolute;
+  left: 9%;
+  right: 9%;
+  top: 19%;
+  bottom: 23%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  text-align: center;
+  color: #f6ecff;
+  font-weight: 800;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  padding: 0 clamp(10px, 3.6vw, 22px);
+  box-sizing: border-box;
+}
+
+.run-summary__stats::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.run-summary__realm {
+  margin: 0;
+  font-size: clamp(16px, 4.1vw, 22px);
+  color: #ffe8b8;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+}
+
+.run-summary__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: clamp(10px, 2.7vw, 18px);
+  row-gap: 8px;
+  margin: 0;
+  padding: 12px clamp(12px, 3.2vw, 18px);
+  border-radius: 12px;
+  background: rgba(12, 4, 28, 0.28);
+  text-align: left;
+}
+
+.run-summary__grid dt {
+  margin: 0;
+  color: rgba(246, 236, 255, 0.88);
+  font-size: clamp(14px, 3.6vw, 18px);
+  font-weight: 850;
+}
+
+.run-summary__grid dd {
+  margin: 0;
+  color: #ffe08a;
+  font-size: clamp(20px, 5vw, 27px);
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 3.2ch;
+}
+
+.run-summary__unlock {
+  margin: 0;
+  color: #b8ff9a;
+  font-size: clamp(13px, 3.4vw, 16px);
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.run-summary__quests {
+  margin: 0;
+  padding: 10px clamp(12px, 3.2vw, 18px);
+  border-radius: 12px;
+  background: rgba(12, 4, 28, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 800;
+  color: rgba(246, 236, 255, 0.9);
+  line-height: 1.3;
+}
+
+.run-summary__quests-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: clamp(10px, 2.7vw, 18px);
+}
+
+.run-summary__quests-label {
+  font-size: clamp(13px, 3.4vw, 17px);
+  text-align: left;
+  color: rgba(246, 236, 255, 0.88);
+}
+
+.run-summary__quests-val {
+  font-size: clamp(18px, 4.5vw, 23px);
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+  color: #fff0c8;
+  text-align: right;
+  min-width: 3.5ch;
+}
+
+.run-summary__shop-toast {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 36%;
+  z-index: 2;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  text-align: center;
+  font-size: clamp(13px, 3.4vw, 16px);
+  font-weight: 900;
+  color: #ffe08a;
+  background: rgba(8, 2, 18, 0.78);
+  border: 2px solid rgba(255, 224, 138, 0.45);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  transition:
+    opacity 0.18s ease,
+    visibility 0.18s ease;
+}
+
+.run-summary__shop-toast--hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.run-summary__footer {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  bottom: 2.5%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(4px, 1.5vw, 10px);
+}
+
+.run-summary__btn {
+  flex: 1 1 48%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.35));
+  transition: transform 0.08s ease;
+}
+
+.run-summary__btn:active {
+  transform: scale(0.97);
+}
+
+.run-summary__btn img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: clamp(44px, 10.5vw, 58px);
+  object-fit: contain;
+  object-position: center;
+  vertical-align: bottom;
 }
 
 .loading-rune {
@@ -375,7 +655,7 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: calc(12px + env(safe-area-inset-top))
+  padding: calc(7px + env(safe-area-inset-top))
     calc(14px + env(safe-area-inset-right))
     calc(16px + env(safe-area-inset-bottom))
     calc(14px + env(safe-area-inset-left));
@@ -384,8 +664,8 @@ body {
   color: #fff;
 }
 
-/** Align HUD column with typical portrait 9:18 gameplay strip on wide viewports */
-@media (min-aspect-ratio: 10 / 18) {
+/** Align HUD column with portrait gameplay strip (same 9:18 as {@link GAMEPLAY_ASPECT} in app code) */
+@media (min-aspect-ratio: 9 / 18) {
   #hud.hud {
     width: min(100vw, calc(100vh * 9 / 18));
     left: 50%;
@@ -394,215 +674,384 @@ body {
   }
 }
 
-.hud-top {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  width: 100%;
+/** Extra-tall / narrow portrait strip (width ÷ height ≤ 10/18 ≈ 0.556) — tighter top bar */
+@media (max-aspect-ratio: 10 / 18) {
+  .hud {
+    padding-top: calc(5px + env(safe-area-inset-top));
+    padding-left: calc(8px + env(safe-area-inset-left));
+    padding-right: calc(8px + env(safe-area-inset-right));
+  }
+
+  .hud-top {
+    min-height: clamp(44px, 11vw, 58px);
+  }
+
+  .hud-top__row {
+    gap: clamp(1px, 0.55vw, 5px);
+    padding: 0 2px;
+    max-width: min(100%, 100vw);
+  }
+
+  .hud-top__level-img {
+    max-height: clamp(46px, 14vw, 72px);
+  }
+
+  .hud-top__coins-img {
+    max-height: clamp(40px, 10.5vw, 56px);
+    max-width: min(142px, 36vw);
+  }
+
+  .hud-top__strokes-img {
+    max-height: clamp(42px, 12vw, 62px);
+  }
+
+  .hud-top__par-img {
+    max-height: clamp(42px, 11.5vw, 62px);
+  }
+
+  .hud-top__action-btn {
+    width: clamp(38px, 10vw, 50px);
+    height: clamp(38px, 10vw, 50px);
+  }
+
+  .hud-instruction-plate {
+    height: clamp(42px, 10vw, 58px);
+  }
+
+  .hud-top__level-value {
+    font-size: clamp(18px, 5.4vw, 30px);
+  }
+
+  .hud-top__strokes-value {
+    font-size: clamp(15px, 4.6vw, 26px);
+  }
+
+  .hud-top__par-value {
+    font-size: clamp(14px, 4.4vw, 24px);
+  }
+
+  .hud-top__coins-count {
+    font-size: clamp(12px, 3.2vw, 17px);
+  }
 }
 
-/* Shield badges — swap .hud-badge bg for images later */
-.hud-badge {
-  --hud-badge-bg: rgba(18, 38, 72, 0.82);
-  --hud-badge-edge: #d4a43a;
+.hud-top {
+  position: relative;
+  width: 100%;
+  padding: clamp(3px, 1.1vw, 8px) 0 clamp(10px, 2.2vw, 16px);
+  min-height: clamp(52px, 13vw, 72px);
+}
+
+/** Wraps plate + row; row sets height, wood plate is a shorter centered strip (see `.hud-top__container`). */
+.hud-top__bar {
+  position: relative;
+  width: 100%;
   display: flex;
-  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.hud-top__row {
+  position: relative;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(2px, 1vw, 8px);
+  width: 100%;
+  max-width: min(680px, 100%);
+  margin: 0 auto;
+  padding: 0 clamp(2px, 0.8vw, 6px);
+}
+
+/**
+ * Wood plate: **fixed short height**, full bar width, vertically centered under the badges.
+ * Badges (`.hud-top__row`) set overall bar height; the plate no longer stretches to match them.
+ */
+.hud-top__container {
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 100%;
+  height: clamp(46px, 10.8vw, 66px);
+  pointer-events: none;
+  display: flex;
   align-items: center;
   justify-content: center;
-  min-width: clamp(68px, 19vw, 88px);
-  padding: 10px 12px 8px;
-  background: var(--hud-badge-bg);
-  border: 3px solid var(--hud-badge-edge);
-  border-radius: 10px 10px 18px 18px;
-  box-shadow:
-    0 4px 0 rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
-/** Purple gem + gold frame — same asset as full-bleed canvas backdrop */
-.hud-badge--level {
-  --hud-badge-bg: transparent;
-  --hud-badge-edge: transparent;
-  background-color: transparent;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  background-image: url(./assets/textures/level_background.png);
-  background-repeat: no-repeat;
-  background-position: 50% 48%;
-  background-size: 100% auto;
-  width: clamp(96px, 31vw, 136px);
-  min-width: unset;
-  aspect-ratio: 1;
-  padding: 15% 14% 20%;
-  justify-content: flex-start;
-  padding-top: 16%;
-  gap: 1px;
+.hud-top__container-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  object-position: center;
+  pointer-events: none;
+  user-select: none;
 }
 
-.hud-badge--level .hud-badge__value,
-.hud-badge--strokes .hud-badge__value {
-  font-size: clamp(28px, 8.2vw, 40px);
+.hud-top__level,
+.hud-top__coins,
+.hud-top__strokes,
+.hud-top__par {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
 }
 
-.hud-badge--level .hud-badge__value {
+/* Par shield — keep readable next to strokes */
+.hud-top__par-img {
+  display: block;
+  max-height: clamp(48px, 13.2vw, 70px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/**
+ * Coin strip art is very wide; cap width so `hud-top__mid` keeps room for strokes + par
+ * (otherwise `flex: 1; min-width: 0` collapses the center and clips the par badge).
+ */
+.hud-top__coins-img {
+  display: block;
+  max-height: clamp(44px, 12vw, 62px);
+  max-width: min(158px, 40vw);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/** Tallest center anchor (reference strokes block) */
+.hud-top__strokes-img {
+  display: block;
+  max-height: clamp(48px, 13.4vw, 70px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/** Level hex: larger than before, still under strokes height */
+.hud-top__level-img {
+  display: block;
+  max-height: clamp(56px, 15.6vw, 82px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hud-top__level {
+  width: auto;
+}
+
+.hud-top__level-value {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(22px, 6.2vw, 34px);
+  font-weight: 900;
+  line-height: 1;
   color: #fffefb;
   text-shadow:
     0 2px 0 rgba(40, 12, 80, 0.85),
-    0 0 12px rgba(120, 60, 200, 0.45);
+    0 0 10px rgba(120, 60, 200, 0.4);
+  pointer-events: none;
 }
 
-.hud-badge--level .hud-badge__label {
-  margin-top: 2px;
-  color: rgba(255, 250, 255, 0.95);
-  text-shadow:
-    0 1px 2px rgba(40, 12, 80, 0.8),
-    0 0 8px rgba(80, 40, 140, 0.4);
-}
-
-.hud-badge--level .hud-badge__meta {
-  margin-top: 4px;
-  color: #ffe9a0;
-  text-shadow:
-    0 1px 2px rgba(40, 12, 80, 0.75),
-    0 0 6px rgba(100, 50, 30, 0.35);
-}
-
-/** Green shield art — text in central green facet (PNG provides gold frame) */
-.hud-badge--strokes {
-  --hud-badge-bg: transparent;
-  --hud-badge-edge: transparent;
-  background-color: transparent;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  background-image: url("/assets/ui/hud_strokes_badge.png");
-  background-repeat: no-repeat;
-  background-position: 50% 42%;
-  background-size: 100% auto;
-  width: clamp(94px, 30vw, 132px);
-  min-width: unset;
-  aspect-ratio: 1;
-  padding: 17% 16% 26%;
-  justify-content: center;
-  gap: 2px;
-}
-
-.hud-badge--strokes .hud-badge__value {
-  color: #f8fff0;
-  text-shadow:
-    0 2px 0 rgba(15, 40, 8, 0.85),
-    0 0 10px rgba(42, 82, 18, 0.55);
-}
-
-.hud-badge--strokes .hud-badge__label {
-  margin-top: 0;
-  color: rgba(248, 255, 240, 0.96);
-  text-shadow:
-    0 1px 2px rgba(15, 40, 8, 0.75),
-    0 0 8px rgba(42, 82, 18, 0.45);
-}
-
-.hud-badge:first-child {
-  justify-self: start;
-}
-
-.hud-badge:last-child {
-  justify-self: end;
-}
-
-.hud-badge__value {
-  font-size: clamp(26px, 7.5vw, 34px);
+.hud-top__level-meta {
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  transform: translateX(-50%);
+  width: 92%;
+  text-align: center;
+  font-size: clamp(6px, 1.6vw, 9px);
   font-weight: 800;
-  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #ffe9a0;
+  text-shadow: 0 1px 2px rgba(40, 12, 80, 0.75);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud-top__coins {
+  width: auto;
+  max-width: min(40vw, 168px);
+  margin-top: 0;
+  z-index: 1;
+}
+
+.hud-top__coins-count {
+  position: absolute;
+  z-index: 1;
+  /** Green coin panel — count shifted right of prior tuning */
+  left: 22%;
+  right: 24%;
+  top: 48.5%;
+  transform: translateY(-50%);
+  font-size: clamp(13px, 3.6vw, 19px);
+  font-weight: 800;
+  color: #fff;
   text-shadow:
     0 2px 0 rgba(0, 0, 0, 0.45),
-    0 0 12px rgba(212, 164, 58, 0.35);
-  letter-spacing: 0.02em;
+    0 0 8px rgba(0, 30, 12, 0.35);
+  pointer-events: none;
+  min-width: 0;
+  text-align: center;
+  white-space: nowrap;
 }
 
-.hud-badge__label {
-  margin-top: 4px;
-  font-size: clamp(9px, 2.5vw, 11px);
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+.hud-top__mid {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(2px, 0.8vw, 6px);
+  flex: 1 1 0;
+  /** Do not shrink below strokes + par or the shield disappears on narrow HUD rows */
+  min-width: min-content;
+  line-height: 0;
+  /** Nudge strokes + par toward the coin strip so the strokes panel can sit on the coin’s right */
+  margin-left: clamp(-20px, -3.6vw, -8px);
 }
 
-.hud-badge__meta {
-  margin-top: 5px;
-  font-size: clamp(9px, 2.4vw, 11px);
-  font-weight: 700;
+.hud-top__strokes {
+  width: auto;
+  flex-shrink: 0;
+  /** Sit slightly above / left so the stone panel reads on the coin strip’s right (green) area */
+  z-index: 2;
+  margin-top: clamp(-4px, -0.6vh, 6px);
+  margin-left: clamp(-36px, -6.4vw, -16px);
+}
+
+.hud-top__strokes-label {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  font-size: clamp(6px, 1.45vw, 10px);
+  font-weight: 900;
   letter-spacing: 0.06em;
-  color: #f0d78c;
-  opacity: 0.95;
+  line-height: 1;
+  text-transform: uppercase;
+  color: #1a1208;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+}
+
+.hud-top__strokes-value {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 56%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(17px, 5.2vw, 29px);
+  font-weight: 900;
+  line-height: 1;
+  color: #1a1208;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+.hud-top__par {
+  width: auto;
+  flex-shrink: 0;
+}
+
+.hud-top__par-label {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 21%;
+  transform: translateX(-50%);
+  font-size: clamp(6px, 1.5vw, 10px);
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: #f2fff4;
+  text-shadow:
+    0 1px 0 rgba(0, 32, 10, 0.75),
+    0 0 6px rgba(0, 60, 20, 0.45);
+  pointer-events: none;
+}
+
+.hud-top__par-value {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 53%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(16px, 5vw, 28px);
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+  text-shadow:
+    0 2px 0 rgba(0, 40, 14, 0.55),
+    0 0 8px rgba(40, 120, 40, 0.35);
+  pointer-events: none;
+}
+
+.hud-top__actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: clamp(4px, 1vw, 8px);
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+
+.hud-top__action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  /** Fit inside wood frame height — reference keeps these smaller than center badges */
+  width: clamp(42px, 11.5vw, 56px);
+  height: clamp(42px, 11.5vw, 56px);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+}
+
+.hud-top__action-btn img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+
+.hud-top__action-btn:active {
+  transform: scale(0.96);
 }
 
 .hud-badge__meta--imperfect {
   font-style: italic;
   opacity: 0.75;
-}
-
-/* Coin pill — rounded dark bar + gold rim */
-.coin-pill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px 8px 12px;
-  border-radius: 999px;
-  background: rgba(12, 22, 42, 0.92);
-  border: 3px solid #c9a227;
-  box-shadow:
-    0 4px 0 rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  justify-self: center;
-  grid-column: 2;
-}
-
-.coin-pill__icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: radial-gradient(circle at 35% 30%, #ffe566, #e8a010 55%, #a56c08);
-  border: 2px solid #fff6c8;
-  box-shadow:
-    inset 0 -2px 0 rgba(0, 0, 0, 0.25),
-    0 2px 4px rgba(0, 0, 0, 0.35);
-}
-
-.coin-pill__count {
-  font-size: clamp(17px, 4.8vw, 22px);
-  font-weight: 800;
-  min-width: 1.2em;
-  text-align: center;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
-}
-
-.coin-pill__plus {
-  pointer-events: none;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: none;
-  border-radius: 10px;
-  font-size: 22px;
-  font-weight: 800;
-  line-height: 1;
-  color: #0a1a0d;
-  background: linear-gradient(180deg, #7cff9a 0%, #2dbe55 45%, #1a8f3c 100%);
-  box-shadow:
-    0 3px 0 #0d5a26,
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  cursor: default;
-  touch-action: manipulation;
-}
-
-.coin-pill__plus:active {
-  transform: translateY(1px);
-  box-shadow: 0 2px 0 #0d5a26;
 }
 
 /* Reward toasts (temporary) */
@@ -616,15 +1065,102 @@ body {
   pointer-events: none;
 }
 
-.hud-skip-row {
+/* Full-screen hole finish / OOB callout — sprites optional under /assets/ui/ */
+.hud-callout {
+  position: fixed;
+  inset: 0;
+  z-index: 8500;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  pointer-events: none;
+  animation: hud-callout-pop 0.38s cubic-bezier(0.22, 1.32, 0.36, 1) both;
+}
+
+.hud-callout--hidden {
+  display: none;
+}
+
+.hud-callout__backdrop {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 50% 42%,
+    rgba(255, 240, 160, 0.22),
+    rgba(4, 12, 24, 0.72) 55%,
+    rgba(2, 6, 14, 0.88)
+  );
+}
+
+.hud-callout__wrap {
+  position: relative;
+  z-index: 1;
+  max-width: min(92vw, 520px);
+  padding: 12px;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.55));
+}
+
+.hud-callout__img {
+  display: block;
+  width: min(88vw, 480px);
+  height: auto;
+  image-rendering: auto;
+}
+
+.hud-callout__img--hidden {
+  display: none;
+}
+
+.hud-callout__fallback {
+  text-align: center;
+  font-size: clamp(28px, 9vw, 52px);
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  line-height: 1.05;
+  color: #fff8e6;
+  text-shadow:
+    0 0 28px rgba(255, 220, 120, 0.75),
+    0 4px 0 rgba(0, 0, 0, 0.45);
+  padding: 8px 12px;
+}
+
+.hud-callout__fallback--hidden {
+  display: none;
+}
+
+@keyframes hud-callout-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.hud-skip-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   max-width: min(96%, 420px);
-  margin: 0 auto 8px;
+  margin: clamp(-22px, -3.5vh, -8px) auto 6px;
   pointer-events: none;
+}
+
+.hud-skip-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(6px, 1.8vw, 12px);
+  width: 100%;
 }
 
 .hud-skip-row--hidden {
@@ -634,16 +1170,27 @@ body {
 .hud-skip-btn {
   pointer-events: auto;
   touch-action: manipulation;
-  padding: 10px 18px;
-  border-radius: 14px;
-  border: 3px solid #d4a43a;
-  font-size: clamp(13px, 3.8vw, 16px);
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  color: #fff;
-  background: rgba(18, 38, 72, 0.92);
-  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.38);
+  width: min(72vw, 280px);
+  height: clamp(52px, 14vw, 68px);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  font-size: 0;
+  color: transparent;
+  text-indent: -9999px;
+  overflow: hidden;
+  background-color: transparent;
+  background-image: url("/assets/ui/skip_level.png");
+  background-repeat: no-repeat;
+  background-position: 50% 50%;
+  background-size: contain;
+  box-shadow: none;
   cursor: pointer;
+}
+
+.hud-skip-btn:focus-visible {
+  outline: 2px solid rgba(255, 236, 190, 0.9);
+  outline-offset: 3px;
 }
 
 .hud-skip-btn:disabled {
@@ -651,12 +1198,61 @@ body {
   cursor: not-allowed;
 }
 
+.hud-skip-price {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  min-height: 0;
+}
+
+.hud-skip-chip {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(4px, 1.2vw, 8px);
+  background: linear-gradient(
+    180deg,
+    #fff2a8 0%,
+    #f5d24a 45%,
+    #e0b020 100%
+  );
+  padding: 0.22em 0.72em 0.28em 0.4em;
+  border-radius: 999px;
+  border: 1px solid rgba(80, 50, 0, 0.38);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 2px 5px rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+}
+
+.hud-skip-coin-icon {
+  display: block;
+  width: clamp(22px, 5.5vw, 30px);
+  height: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
+  pointer-events: none;
+  user-select: none;
+}
+
 .hud-skip-cost {
-  font-size: clamp(12px, 3.4vw, 14px);
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #f0d78c;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  font-size: clamp(11px, 3vw, 14px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.15;
+  text-transform: uppercase;
+  color: #2c1a06;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.hud-skip-row--free .hud-skip-cost {
+  color: #0a3a18;
 }
 
 .hud-toast {
@@ -732,26 +1328,61 @@ body {
   width: 100%;
 }
 
-.instruction-panel {
+.hud-instruction-stack {
   position: relative;
   width: 100%;
-  max-width: min(96%, 420px);
-  padding: 16px 18px 14px;
-  background: rgba(18, 38, 72, 0.88);
-  border: 3px solid #d4a43a;
-  border-radius: 22px;
-  box-shadow:
-    0 6px 0 rgba(0, 0, 0, 0.38),
-    inset 0 2px 0 rgba(255, 255, 255, 0.07);
+  max-width: min(96%, 680px);
+  padding: 0 8px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  /* Lift strength bar + hint closer to the playfield */
+  transform: translateY(calc(-1 * clamp(12px, 3vh, 32px)));
 }
 
-.instruction-panel__main {
+/**
+ * Same wood plate as `.hud-top__container` — “Drag to aim” / “Release to hit” / “Rolling…”
+ * sits under the power readout + charge bar.
+ */
+.hud-instruction-plate {
+  position: relative;
+  width: 100%;
+  height: clamp(46px, 10.8vw, 66px);
+  margin-top: clamp(6px, 1.4vw, 12px);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hud-instruction-plate__img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  object-position: center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hud-instruction-hint {
+  position: relative;
+  z-index: 1;
   margin: 0;
-  font-size: clamp(17px, 4.9vw, 22px);
+  padding: 0 clamp(12px, 4vw, 28px);
+  font-size: clamp(16px, 4.5vw, 21px);
   font-weight: 800;
   letter-spacing: 0.03em;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  line-height: 1.15;
+  text-align: center;
+  color: #fffefb;
+  text-shadow:
+    0 2px 0 rgba(40, 12, 80, 0.82),
+    0 0 10px rgba(120, 60, 200, 0.28);
 }
 
 /* Procgen replay — must stay `pointer-events: none` so pulls reach the canvas (see Hud title for full seed). */
@@ -773,19 +1404,24 @@ body {
   display: none;
 }
 
-.instruction-panel__power {
-  margin-top: 12px;
+.hud-instruction-power {
+  margin-top: 0;
+  padding-top: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: clamp(4px, 1.2vw, 8px);
 }
 
-.instruction-panel__power--hidden {
+.hud-instruction-power--hidden {
   display: none;
 }
 
-.instruction-panel__power-pct {
+.hud-instruction-power--hidden + .hud-instruction-plate {
+  margin-top: 0;
+}
+
+.hud-instruction-power-pct {
   align-self: center;
   font-size: clamp(22px, 6.5vw, 30px);
   font-weight: 900;
@@ -796,47 +1432,40 @@ body {
     0 0 14px rgba(212, 164, 58, 0.45);
 }
 
-.power-bar {
-  height: clamp(14px, 4vw, 18px);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 2px solid rgba(255, 255, 255, 0.12);
-  overflow: hidden;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35);
-}
-
-.power-bar__fill {
-  height: 100%;
+.charge-bar {
   width: 100%;
-  transform-origin: left center;
-  transform: scaleX(0);
-  border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    #ffe9a0 0%,
-    #e8b020 40%,
-    #c07810 100%
-  );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  transition: transform 0.05s linear;
+  max-width: min(88vw, 360px);
+  margin-inline: auto;
 }
 
-.status-chip {
-  display: inline-block;
-  margin-top: 10px;
-  padding: 5px 14px;
-  border-radius: 999px;
-  font-size: clamp(11px, 3vw, 13px);
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #fff;
-  background: rgba(8, 120, 72, 0.95);
-  border: 2px solid #6dff9e;
-  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+.charge-bar__track {
+  position: relative;
+  width: 100%;
+  overflow: visible;
 }
 
-.status-chip--hidden {
-  display: none;
+.charge-bar__track-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: top;
+  user-select: none;
+  pointer-events: none;
+}
+
+.charge-bar__pointer {
+  position: absolute;
+  bottom: calc(100% - 4px);
+  left: 50%;
+  width: clamp(22px, 6.5vw, 34px);
+  transform: translateX(-50%) rotate(-90deg);
+  transform-origin: 50% 100%;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45));
+}
+
+.charge-bar__pointer img {
+  display: block;
+  width: 100%;
+  height: auto;
 }

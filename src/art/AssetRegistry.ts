@@ -25,8 +25,8 @@ const DEFAULT_MODELS_BASE = publicUrl("assets/models/");
  * bake smaller maps in your DCC (or use gltf-transform / Blender) before copying into `public/`.
  *
  * **Hazard FBX naming:** windmill rotating pieces should be named `windmillArm`, `windmill_arm`, `windmillArm2`, or
- * `windmillArm.001`-style (underscores/dots are normalized); fan rotors should match `fanArm` / `fan_blade` /
- * `fanRotor` prefixes (see `implementations.ts`). If names are missing, a sibling heuristic picks likely rotor geometry.
+ * `windmillArm.001`-style (underscores/dots are normalized). **Two-mesh `windmill.glb`:** first mesh = body, second = blades (spin on Z, same as fan). Fan rotors should match `fanArm` / `fan_blade` /
+ * `fanRotor` prefixes (see `implementations.ts`). **`fan.glb`:** first mesh = body, second = blades (spin). If names are missing, a sibling heuristic picks likely rotor geometry.
  *
  * **Procgen tiles:** FBX keys try `.fbx` first, then the same basename with `.glb`.
  * Artist sources may live in repo `/Tiles/` — deploy copies under `public/assets/models/`
@@ -49,8 +49,9 @@ export const ASSET_FILENAMES = {
   tile_ramp_lw: "tile_ramp_lw.fbx",
   tile_start_ph: "tile_start_ph.fbx",
   tile_hole_ph: "tile_hole_ph.fbx",
-  hazard_windmill: "hazard_windmill.fbx",
-  hazard_fan: "hazard_fan.fbx",
+  /** Windmill (GLB): two-mesh exports use body + blades like fan; FBX legacy used `windmillArm*`. */
+  hazard_windmill: "windmill.glb",
+  hazard_fan: "fan.glb",
   /** Placeholder until art ships — try `.fbx` then `.glb` */
   hazard_bridge: "hazard_bridge.fbx",
   /** Bumpers — falls back to procedural mesh if missing */
@@ -59,9 +60,10 @@ export const ASSET_FILENAMES = {
   hazard_portal_gate: "hazard_portal_gate.glb",
   /** Speed strip — falls back to procedural pad if missing */
   hazard_boost: "hazard_boost.fbx",
-  /** Sand trap mesh — falls back to procedural sand if missing */
-  hazard_sandpit: "hazard_sandpit.fbx",
-  coin: "coin.glb",
+  /** Sand trap mesh (GLB) — falls back to procedural sand if missing */
+  hazard_sandpit: "hazard_sandpit.glb",
+  /** In-world collectible crown coin (GLB under `public/assets/models/`) */
+  coin: "collectible_crown_coin.glb",
   ball_default: "ball_default.glb",
   ball_gold: "ball_gold.glb",
   /** Large flat-topped mass placed under the course for a grounded read */

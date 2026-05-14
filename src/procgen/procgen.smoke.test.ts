@@ -201,10 +201,10 @@ describe("procgen pipeline", () => {
     });
     expect(level.tiles.length).toBeGreaterThan(0);
     expect(level.railColliders.length).toBeGreaterThan(0);
-    expect(level.finishKind).toBe("portal");
+    expect(level.finishKind).toBe("hole");
     expect(
       level.hazardSpecs.some((s) => s.kind === "portal_gate" && s.portalMode === "finish"),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("double-row with ramps off yields portal gaps at high level", () => {
@@ -303,12 +303,12 @@ describe("procgen pipeline", () => {
       targetDifficultyRounded: 10,
       rng: fixedRng,
     });
-    expect(level.finishKind).toBe("portal");
+    expect(level.finishKind).toBe("hole");
     expect(level.hazardSpecs.every((spec) =>
       spec.kind === "portal_gate" || spec.kind === "bumper_mushroom",
     )).toBe(true);
     expect(level.hazardSpecs.some((spec) => spec.portalMode === "finish")).toBe(
-      true,
+      false,
     );
   });
 

@@ -1,20 +1,11 @@
-import { hazardWeight, type HazardKind } from "../hazards/HazardTypes";
+import { hazardWeight } from "../hazards/HazardTypes";
 import type { HazardSpawnSpec, PlacedTile } from "./LevelTypes";
-
-/** Hazards chosen randomly on eligible tiles (excludes paired portal_gate). */
-const SCATTER_KINDS: HazardKind[] = [
-  "bumper_mushroom",
-];
 
 function shuffleInPlace<T>(arr: T[], rng: () => number): void {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-}
-
-function pickScatterKind(rng: () => number): HazardKind {
-  return SCATTER_KINDS[Math.floor(rng() * SCATTER_KINDS.length)];
 }
 
 function stationOrIndex(tiles: readonly PlacedTile[], tileIndex: number): number {
@@ -65,8 +56,8 @@ function tryPickPortalPairIndices(
 ): [number, number] | null {
   if (eligible.length < 2) return null;
   for (let attempt = 0; attempt < 55; attempt++) {
-    const i = eligible[Math.floor(rng() * eligible.length)];
-    const j = eligible[Math.floor(rng() * eligible.length)];
+    const i = eligible[Math.floor(rng() * eligible.length)]!;
+    const j = eligible[Math.floor(rng() * eligible.length)]!;
     if (i === j) continue;
     if (Math.abs(i - j) < 2) continue;
     const si = stationOrIndex(tiles, i);
@@ -75,6 +66,36 @@ function tryPickPortalPairIndices(
     return [i, j];
   }
   return null;
+}
+
+/** Maximal runs of consecutive tile indices (path order), each run length ≥ 3 */
+function consecutiveRunsInPool(pool: readonly number[]): number[][] {
+  if (pool.length < 3) return [];
+  const sorted = [...new Set(pool)].sort((a, b) => a - b);
+  const runs: number[][] = [];
+  let cur: number[] = [sorted[0]!];
+  for (let k = 1; k < sorted.length; k++) {
+    const v = sorted[k]!;
+    if (v === sorted[k - 1]! + 1) cur.push(v);
+    else {
+      runs.push(cur);
+      cur = [v];
+    }
+  }
+  runs.push(cur);
+  return runs.filter((r) => r.length >= 3);
+}
+
+/** Pick a contiguous cluster of `size` indices from a run, or null */
+function pickClusterSlice(
+  run: readonly number[],
+  size: number,
+  rng: () => number,
+): number[] | null {
+  if (run.length < size) return null;
+  const startMax = run.length - size;
+  const start = Math.floor(rng() * (startMax + 1));
+  return run.slice(start, start + size);
 }
 
 /**
@@ -98,17 +119,24 @@ export function generateHazardSpecs(
 
   let budget: number;
   if (levelIndex >= 2 && levelIndex <= 4) {
-    budget = rng() < 0.58 ? 1 : 0;
+    /** Always place at least one hazard on short early holes so mushroom clusters can appear. */
+    if (eligible.length >= 5) {
+      budget = rng() < 0.45 ? 3 : 2;
+    } else if (eligible.length >= 3) {
+      budget = 2;
+    } else {
+      budget = eligible.length >= 1 ? 1 : 0;
+    }
   } else {
     const roll = Math.ceil(rng() * maxH);
-    budget = Math.max(1, roll);
+    budget = Math.max(2, roll);
   }
 
   const used = new Set<number>();
   const specs: HazardSpawnSpec[] = [];
 
   const portalOk =
-    levelIndex >= 8 && eligible.length >= 6 && rng() < 0.36 && budget >= 2;
+    levelIndex >= 8 && eligible.length >= 6 && rng() < 0.36 && budget >= 4;
   if (portalOk) {
     const pair = tryPickPortalPairIndices(eligible, tiles, rng);
     if (pair) {
@@ -136,20 +164,81 @@ export function generateHazardSpecs(
     }
   }
 
-  const pool = eligible.filter((i) => !used.has(i));
+  let pool = eligible.filter((i) => !used.has(i));
   shuffleInPlace(pool, rng);
 
-  const scatterCount = Math.min(Math.max(0, budget), pool.length);
-  for (let k = 0; k < scatterCount; k++) {
-    const tileIndex = pool[k];
-    const kind = pickScatterKind(rng);
+  const pushMushroom = (tileIndex: number, fanSign: 1 | -1) => {
+    const r = rng();
+    const mushroomVisualScale =
+      1 + r * r * 0.95 + rng() * 0.85;
     specs.push({
       id: `hz-${levelIndex}-${tileIndex}-${specs.length}`,
-      kind,
+      kind: "bumper_mushroom",
       tileIndex,
-      weight: hazardWeight(kind),
-      fanSign: (rng() > 0.5 ? 1 : -1) as 1 | -1,
+      weight: hazardWeight("bumper_mushroom"),
+      fanSign,
+      mushroomVisualScale: Math.min(2.75, mushroomVisualScale),
     });
+  };
+
+  const pushFan = (tileIndex: number, fanSign: 1 | -1) => {
+    specs.push({
+      id: `hz-${levelIndex}-${tileIndex}-${specs.length}`,
+      kind: "fan",
+      tileIndex,
+      weight: hazardWeight("fan"),
+      fanSign,
+    });
+  };
+
+  const pushWindmill = (tileIndex: number) => {
+    specs.push({
+      id: `hz-${levelIndex}-${tileIndex}-${specs.length}`,
+      kind: "windmill",
+      tileIndex,
+      weight: hazardWeight("windmill"),
+    });
+  };
+
+  while (budget > 0 && pool.length > 0) {
+    if (budget >= 3) {
+      const want: 3 | 4 = rng() < 0.52 ? 3 : 4;
+      const size = Math.min(want, budget, pool.length);
+      if (size >= 3) {
+        const runs = consecutiveRunsInPool(pool);
+        const viable = runs.filter((r) => r.length >= size);
+        if (viable.length > 0) {
+          const run = viable[Math.floor(rng() * viable.length)]!;
+          const cluster = pickClusterSlice(run, size, rng);
+          if (cluster) {
+            for (const tileIndex of cluster) {
+              used.add(tileIndex);
+              pushMushroom(tileIndex, (rng() > 0.5 ? 1 : -1) as 1 | -1);
+            }
+            pool = pool.filter((i) => !used.has(i));
+            budget -= size;
+            shuffleInPlace(pool, rng);
+            continue;
+          }
+        }
+      }
+    }
+
+    const tileIndex = pool[0]!;
+    used.add(tileIndex);
+    pool = pool.filter((i) => i !== tileIndex);
+    const wantFan = levelIndex >= 4 && rng() < 0.32;
+    const wantWindmill =
+      levelIndex >= 3 && !wantFan && rng() < 0.26;
+    if (wantFan) {
+      pushFan(tileIndex, (rng() > 0.5 ? 1 : -1) as 1 | -1);
+    } else if (wantWindmill) {
+      pushWindmill(tileIndex);
+    } else {
+      pushMushroom(tileIndex, (rng() > 0.5 ? 1 : -1) as 1 | -1);
+    }
+    budget -= 1;
+    shuffleInPlace(pool, rng);
   }
 
   return specs;

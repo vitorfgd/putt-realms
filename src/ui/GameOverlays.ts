@@ -9,8 +9,6 @@ export interface LevelSummaryView {
   par: number;
   coinsCollected: number;
   rewardCoins: number;
-  seed?: string;
-  difficulty: number;
   realmName: string;
   unlockedCosmetic?: string;
   questProgress: QuestProgress;
@@ -18,7 +16,6 @@ export interface LevelSummaryView {
 
 export class GameOverlays {
   private readonly root: HTMLElement;
-  private readonly pauseBtn: HTMLButtonElement;
   private readonly pausePanel: HTMLElement;
   private readonly loadingPanel: HTMLElement;
   private readonly routePanel: HTMLElement;
@@ -31,23 +28,17 @@ export class GameOverlays {
   onPauseChange?: (paused: boolean) => void;
   onRestart?: () => void;
   onContinue?: () => void;
+  /** Optional — e.g. future shop route; summary Shop button still shows an in-panel hint if unset. */
+  onShop?: () => void;
   onAudioSettings?: (settings: Partial<AudioSettings>) => void;
   onUiSound?: () => void;
+
+  private shopToastTimer = 0;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement("div");
     this.root.className = "game-overlays";
     parent.appendChild(this.root);
-
-    this.pauseBtn = document.createElement("button");
-    this.pauseBtn.type = "button";
-    this.pauseBtn.className = "overlay-pause-button";
-    this.pauseBtn.textContent = "Pause";
-    this.pauseBtn.addEventListener("click", () => {
-      this.onUiSound?.();
-      this.showPause(true);
-    });
-    this.root.appendChild(this.pauseBtn);
 
     this.pausePanel = this.panel("pause-panel overlay-panel--hidden");
     this.pausePanel.innerHTML = `
@@ -123,23 +114,28 @@ export class GameOverlays {
   showRoute(level: GeneratedLevel): void {
     const p = level.progressionSummary;
     if (!p) return;
-    const nodes = Array.from({ length: p.maxLevel }, (_, i) => i + 1)
-      .map((n) => {
-        const cls = [
-          "route-node",
-          n < p.level ? "route-node--done" : "",
-          n === p.level ? "route-node--current" : "",
-          p.milestoneLevels.includes(n) ? "route-node--milestone" : "",
-        ].join(" ");
-        return `<span class="${cls}">${n}</span>`;
-      })
-      .join("");
+    const diff = level.difficultyScore;
+    const hole = p.level;
     this.routePanel.innerHTML = `
-      <div class="overlay-card route-card">
-        <span class="overlay-eyebrow">Realm Run</span>
-        <h2>${p.realmName}</h2>
-        <p class="overlay-muted">Level ${p.level}/${p.maxLevel} | Par ${level.par}</p>
-        <div class="route-line">${nodes}</div>
+      <div class="realm-route" role="status" aria-live="polite">
+        <div class="realm-route__frame">
+          <div class="realm-route__picture">
+            <img
+              class="realm-route__bg"
+              src="/assets/ui/realm_run_frame.png"
+              alt=""
+              width="967"
+              height="348"
+              decoding="async"
+            />
+          </div>
+          <div class="realm-route__text">
+            <p class="realm-route__realm">${escapeHtml(p.realmName)}</p>
+            <p class="realm-route__meta">
+              Hole <strong>${hole}</strong> · Difficulty <strong>${diff}/10</strong> · Par ${level.par}
+            </p>
+          </div>
+        </div>
       </div>
     `;
     this.routePanel.classList.remove("overlay-panel--hidden");
@@ -167,31 +163,84 @@ export class GameOverlays {
   }
 
   showSummary(summary: LevelSummaryView): void {
+    const coinsTotal = summary.coinsCollected + summary.rewardCoins;
+    const qp = summary.questProgress;
     this.summaryPanel.innerHTML = `
-      <div class="overlay-card summary-card">
-        <span class="overlay-eyebrow">Hole Complete</span>
-        <h2>${summary.realmName}</h2>
-        <div class="summary-grid">
-          <span>Strokes</span><strong>${summary.strokes}</strong>
-          <span>Par</span><strong>${summary.par}</strong>
-          <span>Coins</span><strong>+${summary.coinsCollected + summary.rewardCoins}</strong>
-          <span>Difficulty</span><strong>${summary.difficulty}/10</strong>
+      <div class="run-summary" role="dialog" aria-labelledby="run-summary-title">
+        <h2 id="run-summary-title" class="run-summary__visually-hidden">Run summary</h2>
+        <div class="run-summary__frame">
+          <img
+            class="run-summary__bg"
+            src="/assets/ui/run_summary_frame.png"
+            alt=""
+            width="520"
+            height="620"
+            decoding="async"
+          />
+          <div class="run-summary__stats">
+            <p class="run-summary__realm">${escapeHtml(summary.realmName)}</p>
+            <dl class="run-summary__grid">
+              <dt>Strokes</dt><dd>${summary.strokes}</dd>
+              <dt>Par</dt><dd>${summary.par}</dd>
+              <dt>Coins</dt><dd>+${coinsTotal}</dd>
+            </dl>
+            ${
+              summary.unlockedCosmetic
+                ? `<p class="run-summary__unlock">Unlocked: ${escapeHtml(summary.unlockedCosmetic)}</p>`
+                : ""
+            }
+            <p class="run-summary__quests">
+              <span class="run-summary__quests-row">
+                <span class="run-summary__quests-label">Under par</span>
+                <span class="run-summary__quests-val">${qp.underParCompletions}/3</span>
+              </span>
+              <span class="run-summary__quests-row">
+                <span class="run-summary__quests-label">Run coins</span>
+                <span class="run-summary__quests-val">${qp.collectedCoins}/10</span>
+              </span>
+            </p>
+          </div>
+          <p class="run-summary__shop-toast run-summary__shop-toast--hidden" role="status" aria-live="polite">
+            Shop — coming soon
+          </p>
+          <div class="run-summary__footer">
+            <button type="button" class="run-summary__btn" data-action="continue" aria-label="Next level">
+              <img src="/assets/ui/run_summary_btn_next.png" alt="" width="280" height="96" decoding="async" />
+            </button>
+            <button type="button" class="run-summary__btn" data-action="shop" aria-label="Shop">
+              <img src="/assets/ui/run_summary_btn_shop.png" alt="" width="280" height="96" decoding="async" />
+            </button>
+          </div>
         </div>
-        ${summary.unlockedCosmetic ? `<p class="overlay-reward">Unlocked: ${summary.unlockedCosmetic}</p>` : ""}
-        <p class="overlay-muted">Seed ${summary.seed ?? "legacy"} | Under par ${summary.questProgress.underParCompletions}/3 | Coins ${summary.questProgress.collectedCoins}/10</p>
-        <button type="button" data-action="continue">Continue</button>
       </div>
     `;
     this.summaryPanel.classList.remove("overlay-panel--hidden");
-    const btn = this.summaryPanel.querySelector("[data-action='continue']");
-    btn?.addEventListener("click", () => {
+    const nextBtn = this.summaryPanel.querySelector("[data-action='continue']");
+    nextBtn?.addEventListener(
+      "click",
+      () => {
+        this.onUiSound?.();
+        this.hideSummary();
+        this.onContinue?.();
+      },
+      { once: true },
+    );
+    const shopBtn = this.summaryPanel.querySelector("[data-action='shop']");
+    shopBtn?.addEventListener("click", () => {
       this.onUiSound?.();
-      this.hideSummary();
-      this.onContinue?.();
-    }, { once: true });
+      this.onShop?.();
+      const toast = this.summaryPanel.querySelector(".run-summary__shop-toast");
+      toast?.classList.remove("run-summary__shop-toast--hidden");
+      window.clearTimeout(this.shopToastTimer);
+      this.shopToastTimer = window.setTimeout(() => {
+        toast?.classList.add("run-summary__shop-toast--hidden");
+      }, 2400);
+    });
   }
 
   hideSummary(): void {
+    window.clearTimeout(this.shopToastTimer);
+    this.shopToastTimer = 0;
     this.summaryPanel.classList.add("overlay-panel--hidden");
   }
 
@@ -216,4 +265,11 @@ export class GameOverlays {
       /* ignore full storage */
     }
   }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

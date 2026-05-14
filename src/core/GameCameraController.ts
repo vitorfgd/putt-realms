@@ -8,6 +8,7 @@ import {
   GAMEPLAY_CAM_HEIGHT,
   GAMEPLAY_CAM_HORIZ_SCALE,
   GAMEPLAY_CAMERA_BLEND_DURATION,
+  HOLE_FINISH_CAM_BLEND_DURATION,
   PREVIEW_CAMERA_DURATION,
 } from "./Constants";
 import { clamp } from "./PlayableLevelService";
@@ -145,6 +146,13 @@ export class GameCameraController {
   private readonly gameplayPos = new THREE.Vector3();
   private readonly gameplayTarget = new THREE.Vector3();
   private readonly followIdeal = new THREE.Vector3();
+  private readonly holeSpectatorPos = new THREE.Vector3();
+  private readonly holeFinishLookScratch = new THREE.Vector3();
+  private readonly holeFinishCamCapturedPos = new THREE.Vector3();
+  private readonly holeFinishCamCapturedLookAt = new THREE.Vector3();
+  private readonly holeFinishFwdScratch = new THREE.Vector3();
+  private readonly holeSpectatorPullTarget = new THREE.Vector3();
+  private holeFinishCamCaptured = false;
   private readonly kickOffset = new THREE.Vector3();
   private level: GeneratedLevel | null = null;
   private yawOffset = 0;
@@ -165,6 +173,7 @@ export class GameCameraController {
     this.kickOffset.set(0, 0, 0);
     this.kickVelocity = 0;
     this.kickTime = 0;
+    this.holeFinishCamCaptured = false;
     this.computeGameplay(ball);
     this.computeOverview(0);
     this.camera.position.copy(this.previewPos);
@@ -259,6 +268,100 @@ export class GameCameraController {
     const alpha = 1 - Math.exp(-GAMEPLAY_CAM_FOLLOW_SMOOTH * deltaSeconds);
     this.camera.position.lerp(this.followIdeal.add(this.kickOffset), alpha);
     this.camera.lookAt(this.gameplayTarget);
+  }
+
+  /**
+   * Hole-out sequence: ease from the **actual** follow camera (smoothed behind the ideal pose)
+   * into a wide cup-side spectator frame, with a slight dolly toward the portal during the vortex.
+   */
+  updateHoleFinishCinematic(
+    _deltaSeconds: number,
+    hole: { x: number; y: number; z: number },
+    start: { x: number; y: number; z: number },
+    ball: THREE.Vector3,
+    levelCompleteTimer: number,
+    vortex01: number,
+  ): void {
+    if (!this.level) return;
+    const hp = hole;
+    const sx = start.x;
+    const sz = start.z;
+    if (!this.holeFinishCamCaptured) {
+      this.holeFinishCamCaptured = true;
+      this.holeFinishCamCapturedPos.copy(this.camera.position);
+      this.camera.getWorldDirection(this.holeFinishFwdScratch);
+      this.holeFinishCamCapturedLookAt
+        .copy(this.camera.position)
+        .addScaledVector(this.holeFinishFwdScratch, 32);
+    }
+    computeBallFollowCameraPose(
+      ball.x,
+      ball.z,
+      hp.x,
+      hp.z,
+      this.gameplayPos,
+      this.gameplayTarget,
+      ball.y,
+      this.yawOffset,
+      this.zoomScale,
+    );
+    this.computeHoleSpectatorPose(hp, sx, sz, this.holeSpectatorPos);
+    const zoom = clamp(this.zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+    const vortexPull = smoothstep(0.22, 1, clamp(vortex01, 0, 1));
+    this.holeSpectatorPullTarget.set(
+      hp.x,
+      hp.y + Ball.RADIUS * 1.1 + 5.2 * zoom,
+      hp.z,
+    );
+    this.holeSpectatorPos.lerp(this.holeSpectatorPullTarget, vortexPull * 0.22);
+    const posBlend = smoothstep(
+      0,
+      HOLE_FINISH_CAM_BLEND_DURATION,
+      levelCompleteTimer,
+    );
+    const posEase = posBlend * posBlend * (3 - 2 * posBlend);
+    this.camera.position.lerpVectors(
+      this.holeFinishCamCapturedPos,
+      this.holeSpectatorPos,
+      posEase,
+    );
+    const cupLookY = hp.y + Ball.RADIUS * 0.42;
+    this.gameplayTarget.set(hp.x, cupLookY, hp.z);
+    const lookBlend = smoothstep(
+      0,
+      HOLE_FINISH_CAM_BLEND_DURATION * 0.78,
+      levelCompleteTimer,
+    );
+    const lookEase = lookBlend * lookBlend * (3 - 2 * lookBlend);
+    this.holeFinishLookScratch
+      .copy(this.holeFinishCamCapturedLookAt)
+      .lerp(this.gameplayTarget, lookEase);
+    this.camera.lookAt(this.holeFinishLookScratch);
+  }
+
+  /** Eye beside the cup along fairway normal — stable while the ball corkscrews in XZ. */
+  private computeHoleSpectatorPose(
+    hole: { x: number; y: number; z: number },
+    startX: number,
+    startZ: number,
+    outPos: THREE.Vector3,
+  ): void {
+    const vx = hole.x - startX;
+    const vz = hole.z - startZ;
+    const vlen = Math.hypot(vx, vz) || 1;
+    const fx = vx / vlen;
+    const fz = vz / vlen;
+    const rx = -fz;
+    const rz = fx;
+    const zoom = clamp(this.zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+    const side = 15.2 * zoom;
+    const lift = 10.2 * zoom;
+    const fwd = 4.1 * zoom;
+    outPos.set(
+      hole.x + rx * side + fx * fwd,
+      hole.y + lift,
+      hole.z + rz * side + fz * fwd,
+    );
   }
 
   updateFog(scene: THREE.Scene): void {

@@ -1,10 +1,17 @@
 import * as THREE from "three";
 import { assetRegistry } from "../art/AssetRegistry";
 import type { GeneratedLevel, PlacedTile } from "./LevelTypes";
-import { TILE_SIZE } from "./TileDimensions";
+import { LANE_HALF_WIDTH, TILE_SIZE } from "./TileDimensions";
 
 /** Decorative GLB — flat-topped mass read as terrain supporting the course from below. */
 const ASSET_KEY = "undermap_island" as const;
+
+/** Clearance under the deck — a touch more when islands are scaled up avoids clipping the tile mesh. */
+const UNDERMAP_DECK_GAP_MIN = 0.07;
+const UNDERMAP_DECK_GAP_RANGE = 0.06;
+/** Target footprint = TILE_SIZE × (base + rng * jitter); keep lateral jitter modest so pads stay under the spine. */
+const UNDERMAP_FOOT_TILES_BASE = 5.42;
+const UNDERMAP_FOOT_TILES_JITTER = 1.12;
 
 export interface UndermapIslandSlot {
   /** Island root XZ (world) — under the fairway centerline */
@@ -155,8 +162,9 @@ export function computeUndermapIslandSlots(level: GeneratedLevel): UndermapIslan
   const L = pathLength(pts);
   if (L < 1e-4) {
     const p = pts[0]!;
-    const underGap = 0.04 + rng() * 0.04;
-    const targetFoot = TILE_SIZE * (5.15 + rng() * 1.05);
+    const underGap = UNDERMAP_DECK_GAP_MIN + rng() * UNDERMAP_DECK_GAP_RANGE;
+    const targetFoot =
+      TILE_SIZE * (UNDERMAP_FOOT_TILES_BASE + rng() * UNDERMAP_FOOT_TILES_JITTER);
     return [
       {
         x: p.x,
@@ -186,16 +194,22 @@ export function computeUndermapIslandSlots(level: GeneratedLevel): UndermapIslan
     const tz = Math.cos(heading);
     const perpX = -tz;
     const perpZ = tx;
-    const lateral = (rng() - 0.5) * clamp(1.1 + seg * 0.04, 0.6, 2.0);
+    /** Match old amplitude (max ±1.0) but cap vs lane half-width so bigger islands stay centered. */
+    const lateralSpan = Math.min(
+      LANE_HALF_WIDTH * 0.58,
+      clamp(1.08 + seg * 0.038, 0.55, 1.85),
+    );
+    const lateral = (rng() - 0.5) * lateralSpan;
     const x = cx + perpX * lateral;
     const z = cz + perpZ * lateral;
 
-    /** Tiny gap below the deck: close enough to read as a base without poking through. */
-    const underGap = 0.04 + rng() * 0.04;
+    /** Gap below the deck — slightly generous so scaled-up tops do not z-fight the deck. */
+    const underGap = UNDERMAP_DECK_GAP_MIN + rng() * UNDERMAP_DECK_GAP_RANGE;
     const topY = deckY - underGap;
 
     /** Bigger than one tile so adjacent pads overlap into a foundation. */
-    const targetFoot = TILE_SIZE * (5.15 + rng() * 1.05);
+    const targetFoot =
+      TILE_SIZE * (UNDERMAP_FOOT_TILES_BASE + rng() * UNDERMAP_FOOT_TILES_JITTER);
     const s = targetFoot / foot;
     const rotationY = heading + (rng() - 0.5) * 0.18;
 

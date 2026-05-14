@@ -104,9 +104,16 @@ export const OCCLUSION_EASE_FOLLOW_ZOOM_START = 1.04;
 /** Drag / shot — clamp keeps aim vector sane at screen edges */
 export const MIN_DRAG_WORLD = 0.35;
 export const MAX_DRAG_WORLD = 5.0;
-/** Pull length (world units) that reaches 100% power — lower than clamp so typical sweeps can max out */
-export const POWER_FULL_DRAG_WORLD = 4.1;
-export const MAX_SHOT_SPEED = 74;
+/** Pull length (world units) that reaches 100% power — higher = softer / more pull for full send */
+export const POWER_FULL_DRAG_WORLD = 4.55;
+export const MAX_SHOT_SPEED = 70;
+/** `speed = pow(power01, gamma) * MAX_SHOT_SPEED` — higher gamma = less speed for partial pulls (tighter curve) */
+export const SHOT_POWER_CURVE_GAMMA = 1.72;
+
+export function shotSpeedFromPower01(power01: number): number {
+  const p = Math.max(0, Math.min(1, power01));
+  return p ** SHOT_POWER_CURVE_GAMMA * MAX_SHOT_SPEED;
+}
 
 /** Offer free skip after crawling at low speed away from the cup */
 export const STUCK_SKIP_PLANAR_SPEED = 0.11;
@@ -127,17 +134,8 @@ export const GROUND_RESTITUTION_Y = 0;
 /** Out-of-bounds when ball falls this far below the deck */
 export const FALL_OOB_Y = -16;
 
-/** Hole scoring: max planar speed to count (flyovers ignored); raised so cup swirl entries still drop */
-export const HOLE_SCORE_MAX_SPEED = 6;
-
-/** Cup “gravity well”: inward pull + mild swirl inside this radius (world xz) */
-export const HOLE_PULL_RADIUS = 3.85;
-export const HOLE_RADIAL_PULL_ACCEL = 48;
-/** Swirl fades out inside this distance so the ball doesn’t orbit the rim forever */
-export const HOLE_SWIRL_FADE_DIST = 0.72;
-export const HOLE_SWIRL_PULL_ACCEL = 16;
-/** Damps tangential velocity near the cup (kills stable loops) */
-export const HOLE_ORBIT_DAMP = 18;
+/** Hole scoring: max planar speed to count when still outside the commit ring (see Game.tryHoleScore) */
+export const HOLE_SCORE_MAX_SPEED = 9;
 
 /** Course edge: forward (+z) runway past play bounds before OOB */
 export const OOB_Z_EXTRA = 7;
@@ -160,6 +158,16 @@ export const CAM_ORBIT_YAW_MAX = Math.PI * 1.15;
 /** Camera / flow timings (seconds) */
 export const PREVIEW_CAMERA_DURATION = 1.32;
 export const GAMEPLAY_CAMERA_BLEND_DURATION = 0.82;
+/** Lerp from ball-follow to cup spectator cam at hole-out (see GameCameraController) */
+export const HOLE_FINISH_CAM_BLEND_DURATION = 0.58;
+/** Ball corkscrew “vacuum slurp” into cup — comic beat before poof */
+export const HOLE_VORTEX_DURATION = 0.78;
+/** Quick shrink after poof VFX */
+export const HOLE_POOF_SHRINK_DURATION = 0.2;
+/** Total in-cup animation before celebration / summary */
+export const HOLE_SINK_SEQUENCE_DURATION =
+  HOLE_VORTEX_DURATION + HOLE_POOF_SHRINK_DURATION;
+/** Legacy sink tween length — used for shrink progress after vortex */
 export const HOLE_SINK_DURATION = 0.48;
 export const HOLE_CELEBRATION_DURATION = 0.42;
 export const POST_HOLE_LEVEL_DELAY = 0.8;

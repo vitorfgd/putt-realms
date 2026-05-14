@@ -229,9 +229,8 @@ export function computeProcgenUndermapQuadSlots(
     const rng = mulberry32(
       hashString(`${map.seed}|undermapGridQuad|${q.anchorGx}|${q.anchorGz}`),
     );
-    const underGap = 0.04 + rng() * 0.04;
-    /** Wide enough for gameplay-style props on the island tops (trees, etc.). */
-    let targetFoot = TILE_SIZE * (3.52 + rng() * 0.44);
+    const underGap = 0.07 + rng() * 0.06;
+    let targetFoot = TILE_SIZE * (3.88 + rng() * 0.46);
     const rotationY = rng() * Math.PI * 2;
 
     const rampDir = closestEdgeAdjacentRampDir(

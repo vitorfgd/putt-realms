@@ -28,6 +28,7 @@ const ARM_THICK = 0.28;
 /** Visual + collision scale for procedural windmill */
 const WINDMILL_SCALE = 0.775;
 const FAN_GLB_SPIN_RATE = 10;
+const WINDMILL_GLB_SPIN_RATE = 5.2;
 
 /**
  * Imported FBX/GLB hazard meshes are often authored in cm or arbitrary units.
@@ -48,11 +49,15 @@ function scaleImportedHazardToHorizontalSpan(
 /** Target horizontal footprint (world units) per hazard after auto-scale */
 const HAZARD_SPAN_WINDMILL = 5.2;
 const HAZARD_SPAN_FAN = 2.5;
+/** Peak planar acceleration (world units / s²) at full falloff in the fan stream. */
+const FAN_PEAK_ACCEL = 16;
 const HAZARD_SPAN_BRIDGE = 6;
 const HAZARD_SPAN_BUMPER = 2.05;
 const HAZARD_SPAN_PORTAL = 2.35;
 const HAZARD_SPAN_BOOST = 4.3;
 const HAZARD_SPAN_SAND = 4.8;
+/** Grounded planar drag multiplier while ball is in sand (see physics `frictionScale`). */
+const SANDPIT_FRICTION_SCALE = 12;
 
 function tileBasis(rotationY: number): {
   fx: number;
@@ -228,7 +233,25 @@ function collectWindmillSpinTargets(root: THREE.Object3D): THREE.Object3D[] {
 }
 
 /**
- * Fan FBX: prefix `fanArm`, `fanBlade`, `fanRotor`, or bare `blade` / `propeller` / `rotor` + digits.
+ * Two-part GLB (fan / windmill): traverse-order first mesh = body, second = blades (only second spins).
+ * If fewer than two meshes, returns [] so callers can fall back to name-based discovery.
+ */
+function collectSecondMeshAsBladeIfTwoPartGlb(root: THREE.Object3D): THREE.Object3D[] {
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) meshes.push(m);
+  });
+  if (meshes.length >= 2) return [meshes[1]!];
+  return [];
+}
+
+function collectFanSpinTargetsFromMeshOrder(root: THREE.Object3D): THREE.Object3D[] {
+  return collectSecondMeshAsBladeIfTwoPartGlb(root);
+}
+
+/**
+ * Fan FBX / legacy: prefix `fanArm`, `fanBlade`, `fanRotor`, or bare `blade` / `propeller` / `rotor` + digits.
  */
 function collectFanSpinTargets(root: THREE.Object3D): THREE.Object3D[] {
   const seen = new Set<string>();
@@ -323,14 +346,18 @@ class WindmillHazard extends BaseHazard {
   private armHalfLen!: number;
   /** Added to {@link HazardBallContext.radius} for hit test — matches blade width in XZ */
   private hitExtra!: number;
-  /** Always positive — one-way spin */
-  private readonly spin = 2.65;
+  /** Spin speed (rad/s) — procedural / named arms vs two-mesh GLB */
+  private bladeSpinRate: number;
   private readonly rx: number;
   private readonly rz: number;
   private readonly fx: number;
   private readonly fz: number;
-  /** Spin targets — procedural arm or FBX nodes named `windmillArm*` */
-  private readonly armSpins: THREE.Object3D[];
+  /** Spin targets — procedural arm, `windmillArm*`, or second mesh in two-part GLB */
+  private armSpins: THREE.Object3D[];
+  /** Procedural + FBX arms: Y. Two-part GLB (body + blades): Z, same as {@link FanHazard}. */
+  private windmillSpinAxis: "x" | "y" | "z";
+  /** Two-part GLB blades spin on Z — use simple radial XZ blocker instead of swept segment. */
+  private useRadialBlocker: boolean;
 
   constructor(
     id: string,
@@ -355,11 +382,25 @@ class WindmillHazard extends BaseHazard {
     if (glb) {
       this.group.add(glb);
       scaleImportedHazardToHorizontalSpan(glb, HAZARD_SPAN_WINDMILL);
-      this.armSpins = collectWindmillSpinTargets(glb);
-      hideWindmillGreyStaticParts(glb, this.armSpins);
+      const twoPart = collectSecondMeshAsBladeIfTwoPartGlb(glb);
+      if (twoPart.length > 0) {
+        this.armSpins = twoPart;
+        this.windmillSpinAxis = "z";
+        this.useRadialBlocker = true;
+        this.bladeSpinRate = WINDMILL_GLB_SPIN_RATE;
+      } else {
+        this.armSpins = collectWindmillSpinTargets(glb);
+        this.windmillSpinAxis = "y";
+        this.useRadialBlocker = false;
+        this.bladeSpinRate = 2.65;
+        hideWindmillGreyStaticParts(glb, this.armSpins);
+      }
       this.group.position.set(cx, deckY, cz);
       this.group.rotation.y = rotationY;
       this.syncArmCollisionFromMesh();
+      if (this.useRadialBlocker) {
+        this.armHalfLen = Math.max(this.armHalfLen, LANE_HALF_WIDTH * 0.92);
+      }
       return;
     }
 
@@ -375,6 +416,9 @@ class WindmillHazard extends BaseHazard {
     arm.name = "windmillArm";
     this.group.add(arm);
     this.armSpins = [arm];
+    this.windmillSpinAxis = "y";
+    this.useRadialBlocker = false;
+    this.bladeSpinRate = 2.65;
 
     this.group.position.set(cx, deckY, cz);
     this.group.rotation.y = rotationY;
@@ -405,10 +449,13 @@ class WindmillHazard extends BaseHazard {
 
   update(dt: number): void {
     super.update(dt);
-    this.angle += this.spin * dt;
-    /** Monotonic Y — same spin sense forever (no sin back-and-forth) */
+    this.angle += this.bladeSpinRate * dt;
+    const a = this.angle;
+    const ax = this.windmillSpinAxis;
     for (const part of this.armSpins) {
-      part.rotation.y = this.angle;
+      if (ax === "x") part.rotation.x = a;
+      else if (ax === "z") part.rotation.z = a;
+      else part.rotation.y = a;
     }
   }
 
@@ -418,6 +465,35 @@ class WindmillHazard extends BaseHazard {
     _dt: number,
   ): boolean {
     void _dt;
+    if (this.useRadialBlocker) {
+      const dx = ctx.position.x - this.cx;
+      const dz = ctx.position.z - this.cz;
+      const dist = Math.hypot(dx, dz);
+      const hitR = ctx.radius + this.armHalfLen + this.hitExtra * 0.65;
+      if (dist > hitR) return false;
+      if (!this.canRegisterHit()) return false;
+
+      const nx = dist > 1e-5 ? dx / dist : 0;
+      const nz = dist > 1e-5 ? dz / dist : 1;
+      const pen = hitR - dist;
+      if (pen > 0) {
+        ctx.position.x += nx * pen;
+        ctx.position.z += nz * pen;
+      }
+
+      const planarSpeed = Math.hypot(physics.velocity.x, physics.velocity.z);
+      const vn = physics.velocity.x * nx + physics.velocity.z * nz;
+      const targetOut = Math.max(10, planarSpeed * 0.78 + 4);
+      physics.velocity.x += (targetOut - vn) * nx;
+      physics.velocity.z += (targetOut - vn) * nz;
+      const tx = -nz;
+      const tz = nx;
+      physics.velocity.x += tx * 2.6;
+      physics.velocity.z += tz * 2.6;
+      this.markHit();
+      return true;
+    }
+
     const vx = Math.cos(this.angle);
     const vz = Math.sin(this.angle);
     const hx = this.armHalfLen * (vx * this.rx + vz * this.fx);
@@ -544,7 +620,7 @@ class SandpitHazard extends BaseHazard {
       Math.abs(loc.lx) <= this.halfW + ctx.radius * 0.4 &&
       Math.abs(loc.lz) <= this.halfL + ctx.radius * 0.4
     ) {
-      env.frictionScale = Math.max(env.frictionScale, 4.2);
+      env.frictionScale = Math.max(env.frictionScale, SANDPIT_FRICTION_SCALE);
     }
   }
 }
@@ -557,10 +633,13 @@ class FanHazard extends BaseHazard {
   private readonly rz: number;
   private readonly fx: number;
   private readonly fz: number;
-  private readonly pushX: number;
-  private readonly pushZ: number;
+  /** Unit blow direction in world XZ (tile forward × fanSign) — away from body + fan. */
+  private readonly blowDirX: number;
+  private readonly blowDirZ: number;
   private fanSpinParts: THREE.Object3D[] = [];
   private fanAngle = 0;
+  /** `fan.glb` mesh-order blades: local Z. Legacy name-based targets: local Y. */
+  private fanSpinAxis: "x" | "y" | "z" = "y";
 
   constructor(
     id: string,
@@ -580,14 +659,21 @@ class FanHazard extends BaseHazard {
     this.rz = b.rz;
     this.fx = b.fx;
     this.fz = b.fz;
-    this.pushX = b.rx * fanSign * 9;
-    this.pushZ = b.rz * fanSign * 9;
+    this.blowDirX = b.fx * fanSign;
+    this.blowDirZ = b.fz * fanSign;
 
     const fanGlb = assetRegistry.getModelClone("hazard_fan");
     if (fanGlb) {
       scaleImportedHazardToHorizontalSpan(fanGlb, HAZARD_SPAN_FAN);
       this.group.add(fanGlb);
-      this.fanSpinParts = collectFanSpinTargets(fanGlb);
+      const ordered = collectFanSpinTargetsFromMeshOrder(fanGlb);
+      if (ordered.length > 0) {
+        this.fanSpinParts = ordered;
+        this.fanSpinAxis = "z";
+      } else {
+        this.fanSpinParts = collectFanSpinTargets(fanGlb);
+        this.fanSpinAxis = "y";
+      }
       this.group.position.set(cx, deckY, cz);
       this.group.rotation.y = rotationY;
       return;
@@ -625,8 +711,12 @@ class FanHazard extends BaseHazard {
     super.update(dt);
     if (this.fanSpinParts.length === 0) return;
     this.fanAngle += FAN_GLB_SPIN_RATE * dt;
+    const a = this.fanAngle;
+    const ax = this.fanSpinAxis;
     for (const p of this.fanSpinParts) {
-      p.rotation.y = this.fanAngle;
+      if (ax === "x") p.rotation.x = a;
+      else if (ax === "z") p.rotation.z = a;
+      else p.rotation.y = a;
     }
   }
 
@@ -646,15 +736,20 @@ class FanHazard extends BaseHazard {
     );
     const ahead = loc.lz;
     const side = loc.lx;
+    const minAhead = 0.28;
+    const maxAhead = TILE_SIZE * 2.1;
     if (
-      ahead > 0.3 &&
-      ahead < TILE_SIZE * 0.55 &&
-      Math.abs(side) < LANE_HALF_WIDTH * 0.95
+      ahead <= minAhead ||
+      ahead >= maxAhead ||
+      Math.abs(side) > LANE_HALF_WIDTH * 0.95
     ) {
-      const k = 0.055;
-      env.accelX += this.pushX * k;
-      env.accelZ += this.pushZ * k;
+      return;
     }
+    const falloff =
+      1 - THREE.MathUtils.smoothstep(minAhead, maxAhead, ahead);
+    const a = FAN_PEAK_ACCEL * falloff;
+    env.accelX += this.blowDirX * a;
+    env.accelZ += this.blowDirZ * a;
   }
 }
 
@@ -897,6 +992,8 @@ class BumperMushroomHazard extends BaseHazard {
   private readonly oz: number;
   /** Meshes live here so we can pulse scale without fighting import scale */
   private readonly visualRoot = new THREE.Group();
+  private readonly baseScale: number;
+  private readonly hitRadius: number;
   private bumpVisualTimer = 0;
   private readonly bumperParticles: BumperHitParticle[] = [];
   private readonly scratchOutward = new THREE.Vector3();
@@ -914,10 +1011,14 @@ class BumperMushroomHazard extends BaseHazard {
     cz: number,
     rotationY: number,
     deckY = 0,
+    visualScaleMul = 1,
   ) {
     super(id, weight, tileKey);
     this.ox = cx;
     this.oz = cz;
+    const m = Math.min(2.75, Math.max(1, visualScaleMul));
+    this.baseScale = m;
+    this.hitRadius = BUMPER_RADIUS * m;
 
     this.visualRoot.name = "bumperMushroomVisual";
     this.group.add(this.visualRoot);
@@ -942,6 +1043,8 @@ class BumperMushroomHazard extends BaseHazard {
       this.visualRoot.add(stem, cap);
     }
 
+    this.visualRoot.scale.setScalar(this.baseScale);
+
     this.group.position.set(cx, deckY, cz);
     this.group.rotation.y = rotationY;
   }
@@ -958,13 +1061,14 @@ class BumperMushroomHazard extends BaseHazard {
       const pulse = Math.sin(u * Math.PI);
       const stretch = pulse * 0.14;
       /** Brief pinball “pop”: widen in XZ, slight squash on Y */
+      const b = this.baseScale;
       this.visualRoot.scale.set(
-        1 + stretch * 1.12,
-        1 - stretch * 0.22,
-        1 + stretch * 1.12,
+        b * (1 + stretch * 1.12),
+        b * (1 - stretch * 0.22),
+        b * (1 + stretch * 1.12),
       );
     } else {
-      this.visualRoot.scale.set(1, 1, 1);
+      this.visualRoot.scale.setScalar(this.baseScale);
     }
 
     for (let i = this.bumperParticles.length - 1; i >= 0; i--) {
@@ -986,7 +1090,7 @@ class BumperMushroomHazard extends BaseHazard {
   }
 
   private spawnBumperHitParticles(worldNx: number, worldNz: number): void {
-    const capY = 0.38;
+    const capY = 0.38 * this.baseScale;
     const count = 16;
     this.scratchOutward
       .set(worldNx, 0, worldNz)
@@ -1046,7 +1150,7 @@ class BumperMushroomHazard extends BaseHazard {
     const dx = ctx.position.x - this.ox;
     const dz = ctx.position.z - this.oz;
     const dist = Math.hypot(dx, dz);
-    const hitR = BUMPER_RADIUS + ctx.radius * 0.85;
+    const hitR = this.hitRadius + ctx.radius * 0.85;
     if (dist > hitR || dist < 1e-4) return false;
     if (!this.canRegisterHit()) return false;
 
@@ -1357,6 +1461,7 @@ export function createHazardInstances(
           cz,
           rot,
           deckY,
+          spec.mushroomVisualScale ?? 1,
         );
         break;
       case "portal_gate": {

@@ -531,6 +531,16 @@ export function appendHolePortalVisuals(parent: THREE.Object3D): void {
   portal.renderOrder = 4;
   portal.name = "HolePortalSurface";
   parent.add(portal);
+
+  const swirlRing = new THREE.Mesh(
+    new THREE.RingGeometry(cupR * 0.22, cupR * 0.62, 36),
+    holeCupPortalSurfaceMaterial(),
+  );
+  swirlRing.rotation.x = -Math.PI / 2;
+  swirlRing.position.y = 0.011;
+  swirlRing.renderOrder = 3;
+  swirlRing.name = "HolePortalSwirlRing";
+  parent.add(swirlRing);
 }
 
 function buildHoleLocal(parent: THREE.Object3D, tile: PlacedTile): void {

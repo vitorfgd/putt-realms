@@ -10,14 +10,9 @@ import { createHazardInstances } from "../hazards/implementations";
 import type { HazardInstance } from "../hazards/Hazard";
 import { FantasyVoidLayer } from "../level/fantasyVoid";
 import type { GeneratedLevel, LevelWorldBounds } from "../level/LevelTypes";
-import {
-  createIslandSurroundDecor,
-  ISLAND_DECOR_ASSET_KEYS,
-} from "../level/islandDecorScatter";
-import {
-  buildUndermapIslandGroup,
-  computeUndermapIslandSlots,
-} from "../level/undermapIslands";
+import { createIslandSurroundDecor } from "../level/islandDecorScatter";
+import { resolveProcgenUndermapPlacement } from "../level/resolveProcgenUndermapIslandSlots";
+import { buildUndermapIslandGroup } from "../level/undermapIslands";
 import { adaptProcgenMapToGeneratedLevel } from "../level/procgenLevelAdapter";
 import {
   createDebugEndpointLabels,
@@ -39,7 +34,6 @@ import {
   centerModelOnDeckOrigin,
   procgenModelExtentForAssetKey,
 } from "./procgenModelScale";
-import { computeProcgenUndermapQuadSlots } from "./procgenUndermapQuads";
 import {
   createSocketDebugGroup,
   createSocketDebugGroupForPlacedTile,
@@ -243,7 +237,7 @@ export class ProcgenDebugViewer {
   private fantasyVoidLayer: FantasyVoidLayer | null = null;
   /** Medium floating islands under 2×2 deck blocks — procgen debug only (see {@link computeProcgenUndermapQuadSlots}). */
   private procgenUndermapGroup: THREE.Group | null = null;
-  /** Same island décor scatter as gameplay (trees, mushrooms, etc.) — procgen map mode only. */
+  /** Same island décor scatter as gameplay — procgen map mode only. */
   private procgenIslandDecorGroup: THREE.Group | null = null;
   private psxLowResEnabled = false;
   private psxPresenter: PsxLowResPresenter | null = null;
@@ -626,50 +620,26 @@ export class ProcgenDebugViewer {
       }
     }
 
-    const quadSlots = computeProcgenUndermapQuadSlots(map);
-    const pathSlots = adapted ? computeUndermapIslandSlots(adapted) : [];
+    const { undermapSlots, usedQuadUndermap } =
+      resolveProcgenUndermapPlacement(map, adapted);
 
-    if (quadSlots.length > 0) {
-      this.procgenUndermapGroup = buildUndermapIslandGroup(quadSlots);
-      this.procgenUndermapGroup.name = "ProcgenDebugUndermapQuads";
-      this.scene.add(this.procgenUndermapGroup);
-    } else if (pathSlots.length > 0) {
-      this.procgenUndermapGroup = buildUndermapIslandGroup(pathSlots);
-      this.procgenUndermapGroup.name = "ProcgenDebugUndermapPath";
+    if (undermapSlots.length > 0) {
+      this.procgenUndermapGroup = buildUndermapIslandGroup(undermapSlots);
+      this.procgenUndermapGroup.name = usedQuadUndermap
+        ? "ProcgenDebugUndermapQuads"
+        : "ProcgenDebugUndermapPath";
       this.scene.add(this.procgenUndermapGroup);
     }
 
     if (adapted) {
-      /** Prefer quad pads under 2×2 flats; merge path pads when present for more targets. */
-      const decorSlots =
-        quadSlots.length > 0 ? [...quadSlots, ...pathSlots] : pathSlots;
-      /**
-       * Always island-only when we have pads — otherwise `trySampleOffDeck` uses a huge bounds pad and
-       * void-shelf Y, which reads as props floating far from the course (procgen debug has no wide vista ring).
-       */
-      const islandsOnlyDecor = decorSlots.length > 0;
+      const islandsOnlyDecor = undermapSlots.length > 0;
       this.procgenIslandDecorGroup = createIslandSurroundDecor(
         adapted,
-        decorSlots,
+        undermapSlots,
         islandsOnlyDecor ? { islandsOnly: true } : undefined,
       );
       this.procgenIslandDecorGroup.name = "ProcgenDebugIslandDecor";
       this.scene.add(this.procgenIslandDecorGroup);
-
-      if (this.procgenIslandDecorGroup.children.length === 0) {
-        const missing = ISLAND_DECOR_ASSET_KEYS.filter((k) => !assetRegistry.isReady(k));
-        if (missing.length === ISLAND_DECOR_ASSET_KEYS.length) {
-          console.warn(
-            "[ProcgenDebugViewer] Island decor: no GLBs loaded — add decor *.glb files under public/assets/models/ (see AssetRegistry).",
-          );
-        } else if (missing.length > 0) {
-          console.warn("[ProcgenDebugViewer] Island decor: missing assets:", missing.join(", "));
-        } else {
-          console.warn(
-            "[ProcgenDebugViewer] Island decor: assets OK but scatter placed nothing (placement rules / seed).",
-          );
-        }
-      }
     }
 
     const cx =

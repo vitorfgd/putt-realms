@@ -26,9 +26,9 @@ import { Hud } from "../ui/Hud";
 import {
   GAMEPLAY_ASPECT,
   HOLE_SCORE_MAX_SPEED,
-  HOLE_SINK_DURATION,
+  HOLE_SINK_SEQUENCE_DURATION,
+  HOLE_VORTEX_DURATION,
   MAX_DRAG_WORLD,
-  MAX_SHOT_SPEED,
   MIN_DRAG_WORLD,
   OOB_MESSAGE_DURATION,
   OOB_Z_EXTRA,
@@ -42,6 +42,7 @@ import {
   isPsxLowResPipelineActive,
   PSX_LOW_RES_INTERNAL_SCALE,
   SKY_BLUE,
+  shotSpeedFromPower01,
   STUCK_SKIP_MIN_DIST_FROM_HOLE,
   STUCK_SKIP_PLANAR_SPEED,
   STUCK_SKIP_SECONDS,
@@ -65,7 +66,9 @@ import {
   buildUndermapIslandGroup,
   computeUndermapIslandSlots,
 } from "../level/undermapIslands";
+import { resolveProcgenUndermapPlacement } from "../level/resolveProcgenUndermapIslandSlots";
 import { GameOverlays } from "../ui/GameOverlays";
+import { readProcgenEndpointReplay } from "../procgen/procgenEndpointReplay";
 import {
   TelemetryService,
   type HoleStatsDraft,
@@ -223,6 +226,10 @@ export class Game {
   private levelCompleteTimer = 0;
   private celebrationShown = false;
   private oobTimer = 0;
+  private holeSummaryTimer = 0;
+  private holeVortexStartDist = 0.4;
+  private holeVortexStartAngle = 0;
+  private holePoofPlayed = false;
 
   private prevPhase = RunPhase.Booting;
   private stuckTimer = 0;
@@ -231,7 +238,6 @@ export class Game {
   private courseDeckTopY = 0;
   /** True after slow-roll “bad lie” timer triggers free skip for this hole */
   private freeSkipFromStuck = false;
-  private coinsToastTimer = 0;
   private readonly audio = new GameAudio();
   private shotEffects!: ShotEffects;
   private voidLayer: FantasyVoidLayer | null = null;
@@ -333,6 +339,7 @@ export class Game {
     this.overlays.onContinue = () => {
       if (this.run.getPhase() === RunPhase.LevelComplete && this.celebrationShown) {
         this.hud.hideToast();
+        this.hud.hideCallout();
         this.advanceLevelAfterHole();
       }
     };
@@ -341,6 +348,21 @@ export class Game {
       this.overlays.syncAudioSettings(this.audio.getSettings());
     };
     this.overlays.onUiSound = () => this.audio.playNamed("ui");
+
+    const openPauseMenu = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.overlays.onUiSound?.();
+      this.overlays.showPause(true);
+    };
+    const hudSettings = hudRoot.querySelector("#hud-settings-btn");
+    if (hudSettings instanceof HTMLButtonElement) {
+      hudSettings.addEventListener("click", openPauseMenu);
+    }
+    const hudPause = hudRoot.querySelector("#hud-pause-btn");
+    if (hudPause instanceof HTMLButtonElement) {
+      hudPause.addEventListener("click", openPauseMenu);
+    }
 
     this.run.onPhaseChange((phase) => {
       this.audio.syncForPhase(phase, this.currentLevelIndex);
@@ -364,8 +386,17 @@ export class Game {
       if (phase === RunPhase.LevelComplete) {
         this.levelCompleteTimer = 0;
         this.celebrationShown = false;
+        this.holePoofPlayed = false;
         this.physics.settleHard();
-        this.shotEffects.onHoleScore(this.ball.position);
+        const hp = this.generatedLevel.holePosition;
+        const dx = this.ball.position.x - hp.x;
+        const dz = this.ball.position.z - hp.z;
+        this.holeVortexStartDist = Math.max(0.12, Math.hypot(dx, dz));
+        this.holeVortexStartAngle = Math.atan2(dz, dx);
+        this.shotEffects.onHoleSuctionStart(
+          new THREE.Vector3(hp.x, hp.y + Ball.RADIUS * 0.22, hp.z),
+        );
+        this.audio.playNamed("ui");
       }
       if (phase === RunPhase.ResolvingOOB) {
         this.holeStats.oobCount++;
@@ -407,7 +438,7 @@ export class Game {
         this.lastShotPosition.copy(this.ball.position);
         this.run.dispatch(RunEvent.ShotReleased);
         this.strokeController.recordStroke();
-        this.physics.applyShot(shotDirectionXZ, power01 * MAX_SHOT_SPEED);
+        this.physics.applyShot(shotDirectionXZ, shotSpeedFromPower01(power01));
       },
       onDragCancel: () => {
         this.run.dispatch(RunEvent.AimCancelled);
@@ -466,6 +497,9 @@ export class Game {
   }
 
   private loadLevel(levelIndex: number, isFirst: boolean): void {
+    window.clearTimeout(this.holeSummaryTimer);
+    this.holeSummaryTimer = 0;
+    this.hud.hideCallout();
     this.overlays.showLoading(true);
     this.cameraYawOffset = 0;
     this.cameraZoomScale = 1;
@@ -497,12 +531,20 @@ export class Game {
       this.generatedLevel,
     );
     this.scene.add(this.backgroundFloatingIslands);
-    const islandSlots = computeUndermapIslandSlots(this.generatedLevel);
-    this.undermapIslands = buildUndermapIslandGroup(islandSlots);
+    const { undermapSlots } = this.generatedLevel.procgenSourceMap
+      ? resolveProcgenUndermapPlacement(
+          this.generatedLevel.procgenSourceMap,
+          this.generatedLevel,
+        )
+      : {
+          undermapSlots: computeUndermapIslandSlots(this.generatedLevel),
+        };
+    this.undermapIslands = buildUndermapIslandGroup(undermapSlots);
     this.scene.add(this.undermapIslands);
     this.islandDecor = createIslandSurroundDecor(
       this.generatedLevel,
-      islandSlots,
+      undermapSlots,
+      undermapSlots.length > 0 ? { islandsOnly: true } : undefined,
     );
     this.scene.add(this.islandDecor);
     this.voidLayer = new FantasyVoidLayer(this.generatedLevel.bounds);
@@ -571,17 +613,20 @@ export class Game {
       this.generatedLevel.difficultyScore,
       this.generatedLevel.imperfectDifficulty,
     );
+    const endpointReplay = readProcgenEndpointReplay(this.generatedLevel);
     this.hud.setProcgenMeta({
       seed: this.generatedLevel.procgenSeed,
       progressionLevel: this.generatedLevel.progressionLevel,
       tileCount: this.generatedLevel.tiles.length,
       turnCount: this.currentTurnCount,
       rampCount: this.currentRampCount,
+      endpointReplay,
     });
     this.hud.setMapSeed(
       this.generatedLevel.procgenSeed ?? this.generatedLevel.id,
+      endpointReplay,
     );
-    this.hud.setStrokes(0);
+    this.hud.setStrokesPar(0, this.generatedLevel.par);
     this.hud.setCoins(this.economy.getCoins());
     this.ball.syncVisualFromRegistry(this.cosmetics.getEquippedBallCosmetic());
     this.ball.applyCosmeticTint(
@@ -740,7 +785,7 @@ export class Game {
   }
 
   private requestSkipLevel(): void {
-    if (this.strokeController.getStrokes() < 1) return;
+    if (this.strokeController.getStrokes() <= this.generatedLevel.par) return;
     const phase = this.run.getPhase();
     if (phase !== RunPhase.AwaitingShot && phase !== RunPhase.BallInFlight) {
       return;
@@ -757,7 +802,6 @@ export class Game {
       result: "skipped",
     });
     this.audio.playNamed("skip");
-    window.clearTimeout(this.coinsToastTimer);
     this.hud.hideToast();
     this.freeSkipFromStuck = false;
     this.stuckTimer = 0;
@@ -784,8 +828,10 @@ export class Game {
 
   private updateSkipUi(phase: RunPhase): void {
     const strokes = this.strokeController.getStrokes();
+    const par = this.generatedLevel.par;
+    const overPar = strokes > par;
     const show =
-      strokes >= 1 &&
+      overPar &&
       (phase === RunPhase.AwaitingShot || phase === RunPhase.BallInFlight);
     if (!show) {
       this.hud.setSkipRow({ visible: false, label: "", enabled: false });
@@ -797,7 +843,7 @@ export class Game {
     const cost = this.economy.skipPrice(diff);
     const label = free ? "FREE" : `${cost} coins`;
     const enabled = free || this.economy.getCoins() >= cost;
-    this.hud.setSkipRow({ visible: true, label, enabled });
+    this.hud.setSkipRow({ visible: true, label, enabled, free });
   }
 
   private getGameplayScreenBounds(): {
@@ -865,8 +911,8 @@ export class Game {
 
   dispose(): void {
     cancelAnimationFrame(this.rafId);
-    window.clearTimeout(this.coinsToastTimer);
     window.clearTimeout(this.hazardHitFlashClear);
+    window.clearTimeout(this.holeSummaryTimer);
     window.removeEventListener("resize", this.onResize);
     this.audio.dispose();
     this.cameraOrbit.dispose();
@@ -921,24 +967,27 @@ export class Game {
   }
 
   private holeScoreRadius(): number {
-    return holeCupRadius() * 0.92;
+    return holeCupRadius() * 0.56;
   }
 
   /**
-   * Radial suck-in + swirl on approach; tangential damping + faded swirl near the cup
-   * so the ball spirals in instead of settling into a perpetual orbit.
+   * Commit when the ball is in the cup ring at moderate speed — no magnetic pull during flight;
+   * the “suction” is purely the LevelComplete corkscrew cinematic.
    */
   private tryHoleScore(): boolean {
     const hp = this.generatedLevel.holePosition;
     const dx = this.ball.position.x - hp.x;
     const dz = this.ball.position.z - hp.z;
+    const dist = Math.hypot(dx, dz);
     const spd = Math.hypot(
       this.physics.velocity.x,
       this.physics.velocity.z,
     );
-    if (spd > HOLE_SCORE_MAX_SPEED) return false;
+    const cupR = holeCupRadius();
+    if (dist > this.holeScoreRadius()) return false;
     if (Math.abs(this.ball.position.y - hp.y) > 0.42) return false;
-    return dx * dx + dz * dz <= this.holeScoreRadius() ** 2;
+    if (dist > cupR * 1.22 && spd > HOLE_SCORE_MAX_SPEED) return false;
+    return true;
   }
 
   /** Closer third-person follow — updates every frame during interactive play */
@@ -952,8 +1001,13 @@ export class Game {
     }
 
     this.courseGroup.traverse((o) => {
+      const cupSpin =
+        this.run.getPhase() === RunPhase.LevelComplete ? 1.95 : 1;
       if (o.name === "HolePortalSurface") {
-        o.rotateOnWorldAxis(HOLE_PORTAL_WORLD_UP, deltaSeconds * 0.65);
+        o.rotateOnWorldAxis(HOLE_PORTAL_WORLD_UP, deltaSeconds * 0.65 * cupSpin);
+      }
+      if (o.name === "HolePortalSwirlRing") {
+        o.rotateOnWorldAxis(HOLE_PORTAL_WORLD_UP, deltaSeconds * -0.88 * cupSpin);
       }
     });
 
@@ -1000,7 +1054,7 @@ export class Game {
         hz.accumulateEnvironment(hzCtx, env);
       }
 
-      const hpWell = this.generatedLevel.holePosition;
+      const hp = this.generatedLevel.holePosition;
 
       const stepEnv: PhysicsStepEnvironment = {
         frictionScale: env.frictionScale,
@@ -1104,7 +1158,6 @@ export class Game {
         this.physics.velocity.x,
         this.physics.velocity.z,
       );
-      const hp = hpWell;
       const distHole = Math.hypot(
         this.ball.position.x - hp.x,
         this.ball.position.z - hp.z,
@@ -1144,8 +1197,48 @@ export class Game {
     } else if (phase === RunPhase.LevelComplete) {
       this.levelCompleteTimer += deltaSeconds;
       const t = this.levelCompleteTimer;
-      if (t < HOLE_SINK_DURATION) {
-        this.ball.setSinkProgress(t / HOLE_SINK_DURATION);
+      const hp = this.generatedLevel.holePosition;
+      const vortexEnd = HOLE_VORTEX_DURATION;
+      const shrinkEnd = HOLE_SINK_SEQUENCE_DURATION;
+
+      if (t < vortexEnd) {
+        const u = t / vortexEnd;
+        /** Ease-in “vacuum ramp” — lingers near rim then slurps in (comic timing). */
+        const suck = Math.pow(u, 0.58);
+        const wobble = 1 + 0.12 * Math.sin(u * Math.PI * 11);
+        const spirals = 5.35;
+        const ang = this.holeVortexStartAngle + suck * spirals * Math.PI * 2;
+        const r = this.holeVortexStartDist * (1 - suck) * wobble;
+        this.ball.position.x = hp.x + Math.cos(ang) * r;
+        this.ball.position.z = hp.z + Math.sin(ang) * r;
+        const bob = Math.sin(u * Math.PI) * 0.07 * (1 - u);
+        this.ball.position.y =
+          hp.y + Ball.RADIUS * (0.94 + 0.32 * (1 - u) - 0.22 * u * u) + bob;
+        this.ball.setSinkProgress(0);
+        const spin = 14 + 26 * u;
+        this.ball.visualRoot.rotation.y += deltaSeconds * spin;
+        this.ball.visualRoot.rotation.x = 0.32 * Math.sin(u * Math.PI * 5);
+        this.ball.visualRoot.rotation.z = 0.18 * Math.sin(u * Math.PI * 4 + 0.7);
+        const squashWobble = 1 + 0.14 * (1 - u) * Math.sin(u * Math.PI * 2);
+        const shrinkIntoCup = THREE.MathUtils.lerp(1, 0.1, Math.pow(u, 1.35));
+        const s = squashWobble * shrinkIntoCup;
+        this.ball.visualRoot.scale.set(s, s * 0.92, s);
+      } else if (t < shrinkEnd) {
+        if (!this.holePoofPlayed) {
+          this.holePoofPlayed = true;
+          this.ball.resetVisual();
+          this.shotEffects.onHolePoof(
+            new THREE.Vector3(hp.x, hp.y + Ball.RADIUS * 0.4, hp.z),
+          );
+          this.audio.playNamed("hole");
+        }
+        const u = (t - vortexEnd) / (shrinkEnd - vortexEnd);
+        this.ball.position.set(
+          hp.x,
+          hp.y + Ball.RADIUS * 0.35 * (1 - u),
+          hp.z,
+        );
+        this.ball.setSinkProgress(u);
       } else {
         this.ball.setSinkProgress(1);
         if (!this.celebrationShown) {
@@ -1165,45 +1258,56 @@ export class Game {
             turnCount: this.currentTurnCount,
             result: "completed",
           });
+
+          let payout = 0;
+          let streakAfterAward = 0;
           if (hio) {
-            const payout = this.economy.awardHoleInOne(
+            payout = this.economy.awardHoleInOne(
               this.generatedLevel.difficultyScore,
             );
-            this.hud.showHoleCelebration(true);
-            this.overlays.showSummary({
-              strokes: this.strokeController.getStrokes(),
-              par: this.generatedLevel.par,
-              coinsCollected: this.collectibles.getCollectedValue(),
-              rewardCoins: payout,
-              seed: this.generatedLevel.procgenSeed,
-              difficulty: this.generatedLevel.difficultyScore,
-              realmName:
-                this.generatedLevel.progressionSummary?.realmName ?? "Putt Realm",
-              unlockedCosmetic,
-              questProgress: this.quests.getProgress(),
-            });
-            this.audio.playNamed("reward");
-            window.clearTimeout(this.coinsToastTimer);
-            this.coinsToastTimer = window.setTimeout(() => {
-              this.hud.showCoinsEarned(payout);
-              this.hud.setCoins(this.economy.getCoins());
-            }, 480);
+            streakAfterAward = this.economy.getHoleInOneStreak();
           } else {
             this.economy.recordNonHoleInOneCompletion();
-            this.hud.showHoleCelebration(false);
-            this.overlays.showSummary({
+          }
+
+          const holeConfettiPos = new THREE.Vector3(
+            hp.x,
+            hp.y + Ball.RADIUS * 0.25,
+            hp.z,
+          );
+          this.shotEffects.onHoleScore(holeConfettiPos);
+
+          window.clearTimeout(this.holeSummaryTimer);
+          const calloutMs = this.hud.presentHoleFinishCallout({
+            holeInOne: hio,
+            streakAfterAward,
+          });
+
+          this.holeSummaryTimer = window.setTimeout(() => {
+            const baseSummary = {
               strokes: this.strokeController.getStrokes(),
               par: this.generatedLevel.par,
               coinsCollected: this.collectibles.getCollectedValue(),
-              rewardCoins: 0,
-              seed: this.generatedLevel.procgenSeed,
-              difficulty: this.generatedLevel.difficultyScore,
               realmName:
-                this.generatedLevel.progressionSummary?.realmName ?? "Putt Realm",
+                this.generatedLevel.progressionSummary?.realmName ??
+                "Putt Realm",
               unlockedCosmetic,
               questProgress: this.quests.getProgress(),
-            });
-          }
+            };
+            if (hio) {
+              this.overlays.showSummary({
+                ...baseSummary,
+                rewardCoins: payout,
+              });
+              this.audio.playNamed("reward");
+              this.hud.setCoins(this.economy.getCoins());
+            } else {
+              this.overlays.showSummary({
+                ...baseSummary,
+                rewardCoins: 0,
+              });
+            }
+          }, calloutMs);
         }
       }
 
@@ -1211,6 +1315,7 @@ export class Game {
       this.oobTimer -= deltaSeconds;
       if (this.oobTimer <= 0) {
         this.hud.hideToast();
+        this.hud.hideCallout();
         this.run.dispatch(RunEvent.OobMessageComplete);
       }
     }
@@ -1221,13 +1326,15 @@ export class Game {
       this.input.isAiming() &&
       preview
     ) {
-      this.aimIndicator.show(preview.shotDirXZ, preview.pullLength);
+      this.aimIndicator.show(
+        preview.shotDirXZ,
+        preview.pullLength,
+        preview.power01,
+      );
       this.hud.setPowerMeter(preview.power01);
-      this.hud.setAimingChip(true);
     } else {
       this.aimIndicator.hide();
       this.hud.setPowerMeter(null);
-      this.hud.setAimingChip(false);
     }
 
     if (phase === RunPhase.BallInFlight) {
@@ -1243,7 +1350,10 @@ export class Game {
       this.hud.setHint("drag");
     }
 
-    this.hud.setStrokes(this.strokeController.getStrokes());
+    this.hud.setStrokesPar(
+      this.strokeController.getStrokes(),
+      this.generatedLevel.par,
+    );
     this.hud.setCoins(this.economy.getCoins());
     this.updateSkipUi(phase);
 
@@ -1251,7 +1361,21 @@ export class Game {
       phase !== RunPhase.PreviewCamera &&
       phase !== RunPhase.TransitioningCamera
     ) {
-      this.cameraController.updateFollow(deltaSeconds, this.ball.position);
+      if (phase === RunPhase.LevelComplete) {
+        const hp = this.generatedLevel.holePosition;
+        const sp = this.generatedLevel.startPosition;
+        const vortex01 = Math.min(1, this.levelCompleteTimer / HOLE_VORTEX_DURATION);
+        this.cameraController.updateHoleFinishCinematic(
+          deltaSeconds,
+          hp,
+          sp,
+          this.ball.position,
+          this.levelCompleteTimer,
+          vortex01,
+        );
+      } else {
+        this.cameraController.updateFollow(deltaSeconds, this.ball.position);
+      }
     }
 
     if (ENABLE_DECOR_CAMERA_OCCLUSION) {

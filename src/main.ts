@@ -40,6 +40,9 @@ if (procgenDebug) {
     await Promise.all(
       ISLAND_DECOR_ASSET_KEYS.map((k) => assetRegistry.preloadAsset(k)),
     );
+    await assetRegistry.preloadAsset("hazard_fan");
+    await assetRegistry.preloadAsset("hazard_windmill");
+    await assetRegistry.preloadAsset("coin");
     if (USE_PROCGEN_ENDPOINT) {
       await Promise.all(
         PROCGEN_PRELOAD_KEYS.map((k) => assetRegistry.preloadAsset(k)),

@@ -36,37 +36,127 @@
       <canvas id="game"></canvas>
       <div id="hud" class="hud" aria-hidden="false">
         <header class="hud-top">
-          <div
-            class="hud-badge hud-badge--level"
-            data-slot="level-badge"
-          >
-            <span class="hud-badge__value" id="hud-level-value">1</span>
-            <span class="hud-badge__label">LEVEL</span>
-            <span class="hud-badge__meta" id="hud-difficulty">★ 0/10</span>
-          </div>
-
-          <div class="coin-pill" id="hud-coin-pill">
-            <span class="coin-pill__icon" aria-hidden="true"></span>
-            <span class="coin-pill__count" id="hud-coins">0</span>
-            <button
-              type="button"
-              class="coin-pill__plus"
-              id="hud-coin-plus"
-              tabindex="-1"
-              aria-label="Bonus"
+          <div class="hud-top__bar">
+            <div class="hud-top__container" aria-hidden="true">
+              <img
+                class="hud-top__container-img"
+                src="/assets/ui/hud_topbar_container.png"
+                alt=""
+                width="975"
+                height="178"
+                decoding="async"
+              />
+            </div>
+            <div class="hud-top__row">
+            <div
+              class="hud-top__level"
+              data-slot="level-badge"
+              role="group"
+              aria-label="Hole number"
             >
-              +
-            </button>
-          </div>
+              <img
+                class="hud-top__level-img"
+                src="/assets/ui/hud_topbar_level.png"
+                alt=""
+                width="120"
+                height="120"
+                decoding="async"
+              />
+              <span class="hud-top__level-value" id="hud-level-value">1</span>
+              <span class="hud-top__level-meta" id="hud-difficulty">DIFF 0/10</span>
+            </div>
 
-          <div
-            class="hud-badge hud-badge--strokes"
-            data-slot="strokes-badge"
-          >
-            <span class="hud-badge__value" id="hud-strokes-value">0</span>
-            <span class="hud-badge__label">STROKES</span>
+            <div class="hud-top__coins" role="group" aria-label="Coins">
+              <img
+                class="hud-top__coins-img"
+                src="/assets/ui/hud_topbar_coins.png"
+                alt=""
+                width="673"
+                height="230"
+                decoding="async"
+              />
+              <span class="hud-top__coins-count" id="hud-coins">0</span>
+            </div>
+
+            <div class="hud-top__mid">
+              <div class="hud-top__strokes" role="group" aria-label="Strokes">
+                <img
+                  class="hud-top__strokes-img"
+                  src="/assets/ui/hud_topbar_strokes.png"
+                  alt=""
+                  width="200"
+                  height="200"
+                  decoding="async"
+                />
+                <span class="hud-top__strokes-label">Strokes</span>
+                <span class="hud-top__strokes-value" id="hud-strokes-value"
+                  >0</span
+                >
+              </div>
+              <div class="hud-top__par" role="group" aria-label="Par">
+                <img
+                  class="hud-top__par-img"
+                  src="/assets/ui/hud_topbar_par.png"
+                  alt=""
+                  width="120"
+                  height="140"
+                  decoding="async"
+                />
+                <span class="hud-top__par-label">Par</span>
+                <span class="hud-top__par-value" id="hud-par-value">—</span>
+              </div>
+            </div>
+
+            <div class="hud-top__actions">
+              <button
+                type="button"
+                class="hud-top__action-btn"
+                id="hud-settings-btn"
+                aria-label="Settings"
+              >
+                <img
+                  src="/assets/ui/hud_topbar_settings.png"
+                  alt=""
+                  width="72"
+                  height="72"
+                  decoding="async"
+                />
+              </button>
+              <button
+                type="button"
+                class="hud-top__action-btn"
+                id="hud-pause-btn"
+                aria-label="Pause"
+              >
+                <img
+                  src="/assets/ui/hud_topbar_pause.png"
+                  alt=""
+                  width="72"
+                  height="72"
+                  decoding="async"
+                />
+              </button>
+            </div>
+            </div>
           </div>
         </header>
+
+        <div
+          id="hud-callout"
+          class="hud-callout hud-callout--hidden"
+          aria-live="assertive"
+        >
+          <div class="hud-callout__backdrop"></div>
+          <div class="hud-callout__wrap">
+            <img
+              id="hud-callout-img"
+              class="hud-callout__img hud-callout__img--hidden"
+              alt=""
+              decoding="async"
+            />
+            <div id="hud-callout-fallback" class="hud-callout__fallback"></div>
+          </div>
+        </div>
 
         <div class="hud-mid">
           <div
@@ -81,50 +171,90 @@
           class="hud-skip-row hud-skip-row--hidden"
           id="hud-skip-wrap"
         >
-          <button
-            type="button"
-            class="hud-skip-btn"
-            id="hud-skip-btn"
-            aria-label="Skip level"
-          >
-            Skip level
-          </button>
-          <span class="hud-skip-cost" id="hud-skip-cost"></span>
+          <div class="hud-skip-stack">
+            <button
+              type="button"
+              class="hud-skip-btn"
+              id="hud-skip-btn"
+              aria-label="Skip level"
+            >
+              Skip level
+            </button>
+            <div class="hud-skip-price" role="presentation">
+              <div class="hud-skip-chip">
+                <img
+                  class="hud-skip-coin-icon"
+                  src="/assets/ui/coin_collectible.png"
+                  alt=""
+                  width="64"
+                  height="64"
+                  decoding="async"
+                />
+                <span class="hud-skip-cost" id="hud-skip-cost"></span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <footer class="hud-bottom">
-          <div class="instruction-panel" id="hud-instruction-panel">
-            <p class="instruction-panel__main" id="hud-hint">Drag to aim</p>
-
+          <div class="hud-instruction-stack" id="hud-instruction-panel">
             <div
-              class="instruction-panel__power instruction-panel__power--hidden"
+              class="hud-instruction-power hud-instruction-power--hidden"
               id="hud-power-wrap"
             >
-              <span class="instruction-panel__power-pct" id="hud-power-pct"
+              <span class="hud-instruction-power-pct" id="hud-power-pct"
                 >0%</span
               >
               <div
-                class="power-bar"
+                class="charge-bar"
                 id="hud-power-bar"
                 role="progressbar"
                 aria-valuemin="0"
                 aria-valuemax="100"
                 aria-valuenow="0"
               >
-                <div class="power-bar__fill" id="hud-power-fill"></div>
+                <div class="charge-bar__track">
+                  <img
+                    class="charge-bar__track-img"
+                    src="/assets/ui/power_charge_bar.png"
+                    alt=""
+                    width="360"
+                    height="80"
+                    decoding="async"
+                  />
+                  <div
+                    class="charge-bar__pointer"
+                    id="hud-charge-pointer"
+                    aria-hidden="true"
+                  >
+                    <img
+                      src="/assets/ui/power_charge_arrow.png"
+                      alt=""
+                      width="72"
+                      height="48"
+                      decoding="async"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
-            <span
-              class="status-chip status-chip--hidden"
-              id="hud-status-chip"
-              >Aiming</span
-            >
+            <div class="hud-instruction-plate">
+              <img
+                class="hud-instruction-plate__img"
+                src="/assets/ui/hud_topbar_container.png"
+                alt=""
+                width="975"
+                height="178"
+                decoding="async"
+              />
+              <p class="hud-instruction-hint" id="hud-hint">Drag to aim</p>
+            </div>
           </div>
           <p
             id="hud-seed"
             class="hud-seed hud-seed--hidden"
-            aria-label="Map generation seed for bug reports"
+            aria-label="Procgen seed, endpoint targetDifficulty and levelIndex; hover for full replay JSON"
           ></p>
         </footer>
       </div>

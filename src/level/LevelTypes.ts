@@ -1,5 +1,6 @@
 import type { AssetKey } from "../art/AssetRegistry";
 import type { HazardKind } from "../hazards/HazardTypes";
+import type { GeneratedMap } from "../procgen/MapGenerationTypes";
 
 export type TileType = "start" | "straight" | "floor" | "curve" | "corner" | "hole";
 
@@ -25,6 +26,8 @@ export interface HazardSpawnSpec {
   portalSpawnDeckY?: number;
   /** World Y rotation (radians) for portal mesh when {@link portalSpawnWorldX} is set (e.g. finish at lane midpoint). */
   portalSpawnRotationY?: number;
+  /** Visual scale for `bumper_mushroom` only — `1` matches legacy size; larger = bigger mesh + hit radius. */
+  mushroomVisualScale?: number;
 }
 
 export interface CollectibleSpec {
@@ -39,9 +42,11 @@ export interface CollectibleSpec {
 }
 
 export interface ProgressionSummary {
+  /** Current hole index in the run (unbounded). */
   level: number;
   realmId: string;
   realmName: string;
+  /** Legacy cap for UIs that showed a finite track; `0` = endless run (no max). */
   maxLevel: number;
   milestoneLevels: number[];
 }
@@ -170,6 +175,11 @@ export interface GeneratedLevel {
   surface: CourseSurface;
   /** Procgen replay/report metadata, intentionally loose so debug payloads can evolve. */
   procgenDebugInfo?: Record<string, unknown>;
+  /**
+   * Original {@link GeneratedMap} from {@link adaptProcgenMapToGeneratedLevel} — lets gameplay
+   * match procgen-debug placement (e.g. undermap quad slots) without re-running the endpoint.
+   */
+  procgenSourceMap?: GeneratedMap;
   procgenSeed?: string;
   progressionLevel?: number;
   par: number;

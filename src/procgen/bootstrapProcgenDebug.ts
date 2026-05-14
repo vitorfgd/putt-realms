@@ -1,6 +1,9 @@
 import { assetRegistry } from "../art/AssetRegistry";
 import type { AssetKey } from "../art/AssetRegistry";
 import { isProcgenDebugPsxLowResPreferred } from "../core/Constants";
+import { ISLAND_DECOR_ASSET_KEYS } from "../level/islandDecorScatter";
+import { ProcgenDebugViewer } from "./ProcgenDebugViewer";
+import { PROCGEN_TILE_TO_ASSET } from "./procgenAssetKeys";
 
 /** Hazards shown on full-map debug — preload FBX/GLB so instances aren’t empty */
 const HAZARD_DEBUG_PRELOAD: AssetKey[] = [
@@ -12,9 +15,6 @@ const HAZARD_DEBUG_PRELOAD: AssetKey[] = [
   "hazard_boost",
   "hazard_sandpit",
 ];
-import { ISLAND_DECOR_ASSET_KEYS } from "../level/islandDecorScatter";
-import { ProcgenDebugViewer } from "./ProcgenDebugViewer";
-import { PROCGEN_TILE_TO_ASSET } from "./procgenAssetKeys";
 
 const PRELOAD_KEYS: AssetKey[] = Array.from(
   new Set([

@@ -12,5 +12,5 @@ export const LANE_HALF_WIDTH = LANE_WIDTH / 2;
 
 /** Cup radius scales with lane width for readability */
 export function holeCupRadius(): number {
-  return LANE_WIDTH * 0.18;
+  return LANE_WIDTH * 0.205;
 }

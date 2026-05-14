@@ -9,7 +9,9 @@ import type {
   ProgressionSummary,
 } from "../level/LevelTypes";
 import { LevelGenerator } from "../level/LevelGenerator";
+import { sampleCourseSurface } from "../level/courseSurface";
 import { mapGenerationEndpoint } from "../procgen/MapGenerationEndpoint";
+import type { ProcgenEndpointReplayPayload } from "../procgen/MapGenerationTypes";
 import {
   readProcgenLayoutUrlOverride,
   readProcgenSeedUrlOverride,
@@ -37,9 +39,6 @@ function getOrCreateLayoutSalt(): string {
   g[LAYOUT_SALT_GLOBAL] = salt;
   return salt;
 }
-
-const PROCGEN_RETRY_COUNT = 4;
-const MAX_PROGRESSION_LEVEL = 20;
 
 export interface ProcgenGameplayConfig {
   progressionLevel: number;
@@ -78,53 +77,69 @@ export function mulberry32(a: number): () => number {
   };
 }
 
+const PROCGEN_RETRY_COUNT = 4;
+/** Procgen “run depth” cap — maps can scale past UI level index; HUD hole count is unbounded. */
+const MAX_PROCGEN_PROGRESSION_DEPTH = 72;
+
 function procgenGameplayConfig(levelIndex: number): ProcgenGameplayConfig {
-  const progressionLevel = clamp(Math.round(levelIndex), 1, MAX_PROGRESSION_LEVEL);
+  const li = Math.max(1, Math.round(levelIndex));
+  /**
+   * Endpoint solver target (not the same as map `difficulty` weights output).
+   * Hole 1 stays at **0** for FTUE (tutorial branch). From hole 2 we start higher so
+   * the second map is already meaningfully harder, then step with depth.
+   */
+  const progressionLevel =
+    li <= 1
+      ? 0
+      : Math.min(MAX_PROCGEN_PROGRESSION_DEPTH, 6 + (li - 2));
+  const displayTargetDifficulty = clamp(
+    progressionLevel <= 0 ? 0 : Math.min(10, Math.round(progressionLevel)),
+    0,
+    10,
+  );
+  const depth =
+    li <= 1 ? 1 : Math.min(progressionLevel, MAX_PROCGEN_PROGRESSION_DEPTH);
   return {
     progressionLevel,
-    displayTargetDifficulty: Math.round(
-      ((progressionLevel - 1) / (MAX_PROGRESSION_LEVEL - 1)) * 10,
-    ),
-    maxTiles: 16 + progressionLevel * 5,
-    allowCurves: progressionLevel >= 2,
-    allowRamps: progressionLevel >= 3,
+    displayTargetDifficulty,
+    maxTiles: 16 + depth * 5,
+    allowCurves: depth >= 2,
+    allowRamps: depth >= 3,
   };
 }
 
 function realmForProgression(level: number): ProgressionSummary {
-  if (level >= 16) {
+  const tier = clamp(level, 1, 20);
+  const common = {
+    level,
+    maxLevel: 0,
+    milestoneLevels: [] as number[],
+  };
+  if (tier >= 16) {
     return {
-      level,
+      ...common,
       realmId: "starlit_peaks",
       realmName: "Starlit Peaks",
-      maxLevel: MAX_PROGRESSION_LEVEL,
-      milestoneLevels: [5, 10, 15, 20],
     };
   }
-  if (level >= 11) {
+  if (tier >= 11) {
     return {
-      level,
+      ...common,
       realmId: "crystal_courtyard",
       realmName: "Crystal Courtyard",
-      maxLevel: MAX_PROGRESSION_LEVEL,
-      milestoneLevels: [5, 10, 15, 20],
     };
   }
-  if (level >= 6) {
+  if (tier >= 6) {
     return {
-      level,
+      ...common,
       realmId: "mushroom_garden",
       realmName: "Mushroom Garden",
-      maxLevel: MAX_PROGRESSION_LEVEL,
-      milestoneLevels: [5, 10, 15, 20],
     };
   }
   return {
-    level,
+    ...common,
     realmId: "sky_meadow",
     realmName: "Sky Meadow",
-    maxLevel: MAX_PROGRESSION_LEVEL,
-    milestoneLevels: [5, 10, 15, 20],
   };
 }
 
@@ -209,7 +224,7 @@ function generateCollectibles(
           (station > minStation + 1 && station < maxStation - 1))
       );
     });
-  const levelFactor = clamp(level.progressionLevel ?? level.levelIndex, 1, 20);
+  const levelFactor = clamp(level.progressionLevel ?? level.levelIndex, 1, 80);
   const target = Math.min(eligible.length, 1 + Math.floor(levelFactor / 4));
   const out: CollectibleSpec[] = [];
   const usedTiles = new Set<number>();
@@ -223,12 +238,16 @@ function generateCollectibles(
     const lx = (rng() - 0.5) * 2.2;
     const lz = (rng() - 0.5) * 2.4;
     const p = localToWorld(pick.tile, lx, lz);
+    const support = sampleCourseSurface(level.surface, p.x, p.z);
+    const baseY = support?.y ?? (pick.tile.worldY ?? 0);
+    /** Clear deck by a small margin; legacy used tile.worldY+0.32 without sampling surface. */
+    const y = support ? baseY + 0.12 : baseY + 0.32;
     out.push({
       id: `coin-${level.id}-${pick.tileIndex}`,
       tileIndex: pick.tileIndex,
       stationIndex: pick.tile.stationIndex,
       x: p.x,
-      y: (pick.tile.worldY ?? 0) + 0.32,
+      y,
       z: p.z,
       value: rng() > 0.86 ? 3 : 1,
     });
@@ -277,11 +296,25 @@ export class PlayableLevelService {
           allowCurves: config.allowCurves,
           ...(layoutOverride ? { layout: layoutOverride } : {}),
         });
-        return adaptProcgenMapToGeneratedLevel(procMap, {
+        const level = adaptProcgenMapToGeneratedLevel(procMap, {
           levelIndex,
           targetDifficultyRounded: config.displayTargetDifficulty,
           rng: mulberry32(hashSeed(`${seed}|hazards`)),
         });
+        const replay: ProcgenEndpointReplayPayload = {
+          seed,
+          levelIndex,
+          targetDifficulty: config.progressionLevel,
+          maxTiles: config.maxTiles,
+          allowRamps: config.allowRamps,
+          allowCurves: config.allowCurves,
+        };
+        if (layoutOverride) replay.layout = layoutOverride;
+        level.procgenDebugInfo = {
+          ...(level.procgenDebugInfo ?? {}),
+          endpointReplay: replay,
+        };
+        return level;
       } catch (err) {
         console.warn("Procgen gameplay map rejected, retrying", {
           levelIndex,
@@ -305,7 +338,8 @@ export class PlayableLevelService {
   }
 
   private finalizeLevel(level: GeneratedLevel): GeneratedPlayableLevel {
-    const progressionLevel = level.progressionLevel ?? clamp(level.levelIndex, 1, 20);
+    const progressionLevel =
+      level.progressionLevel ?? Math.max(1, level.levelIndex);
     const realm = realmForProgression(progressionLevel);
     const turnCount = countTurns(level);
     const rampCount = level.tiles.filter((tile) => tile.isRamp).length;

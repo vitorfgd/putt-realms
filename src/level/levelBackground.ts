@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-/** Bundled PNG — same art as HUD `.hud-badge--level` / optional `public/` copy */
+/** Bundled PNG — optional full-bleed course backdrop (see `public/` copy) */
 export const LEVEL_BACKGROUND_TEXTURE_URL = new URL(
   "../assets/textures/level_background.png",
   import.meta.url,

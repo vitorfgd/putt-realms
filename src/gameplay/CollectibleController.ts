@@ -1,10 +1,89 @@
 import * as THREE from "three";
+import { assetRegistry } from "../art/AssetRegistry";
 import type { CollectibleSpec } from "../level/LevelTypes";
 import { createCoinMesh } from "./ShotEffects";
 
 interface LiveCollectible {
   spec: CollectibleSpec;
   group: THREE.Group;
+}
+
+const COLLECTIBLE_SIZE_MUL = 1.22;
+const COLLECTIBLE_FOOTPRINT_R = (value: number) => (0.31 + value * 0.026) * COLLECTIBLE_SIZE_MUL;
+
+/**
+ * Slightly warmer / brighter materials so coins read against fairways and shadows.
+ */
+function boostCoinMaterials(root: THREE.Object3D): void {
+  const warm = new THREE.Color(0xffd870);
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const m of mats) {
+      if (!m) continue;
+      if (
+        m instanceof THREE.MeshStandardMaterial ||
+        m instanceof THREE.MeshPhysicalMaterial
+      ) {
+        m.emissive.copy(m.emissive).lerp(warm, 0.42);
+        m.emissiveIntensity = Math.max(m.emissiveIntensity, 0.55);
+      } else if (m instanceof THREE.MeshLambertMaterial) {
+        m.emissive.copy(m.emissive).lerp(warm, 0.35);
+        m.emissiveIntensity = Math.max(m.emissiveIntensity ?? 0, 0.45);
+      }
+    }
+  });
+}
+
+/** Flat additive ring — reads from above / orbit cam without fighting the GLB silhouette */
+function addPickupGroundHalo(parent: THREE.Group, radius: number): void {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 0.42, radius * 1.05, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0xffee99,
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.018;
+  ring.renderOrder = 1;
+  ring.name = "CollectibleGroundHalo";
+  parent.add(ring);
+}
+
+/**
+ * In-world coin pickups: {@link AssetRegistry} `coin` GLB when loaded, else {@link createCoinMesh}.
+ */
+function buildPickupCoinGroup(value: number): THREE.Group {
+  const footprintR = COLLECTIBLE_FOOTPRINT_R(value);
+  const clone = assetRegistry.getModelClone("coin");
+  if (!clone) {
+    const g = createCoinMesh(value);
+    g.scale.multiplyScalar(COLLECTIBLE_SIZE_MUL);
+    boostCoinMaterials(g);
+    addPickupGroundHalo(g, footprintR);
+    return g;
+  }
+  const wrap = new THREE.Group();
+  wrap.add(clone);
+  clone.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(clone);
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z, 1e-5);
+  const targetDiameter = 2 * footprintR;
+  const s = targetDiameter / maxDim;
+  clone.scale.multiplyScalar(s);
+  clone.updateMatrixWorld(true);
+  const grounded = new THREE.Box3().setFromObject(clone);
+  clone.position.y -= grounded.min.y;
+  boostCoinMaterials(wrap);
+  addPickupGroundHalo(wrap, footprintR);
+  return wrap;
 }
 
 export class CollectibleController {
@@ -18,11 +97,12 @@ export class CollectibleController {
   }
 
   reset(specs: readonly CollectibleSpec[]): void {
-    this.clear();
+    this.disposeCoinMeshChildren();
+    this.live.length = 0;
     this.collectedValue = 0;
     this.collectedCount = 0;
     for (const spec of specs) {
-      const group = createCoinMesh(spec.value);
+      const group = buildPickupCoinGroup(spec.value);
       group.name = spec.id;
       group.position.set(spec.x, spec.y, spec.z);
       this.group.add(group);
@@ -31,6 +111,11 @@ export class CollectibleController {
   }
 
   clear(): void {
+    this.disposeCoinMeshChildren();
+    this.live.length = 0;
+  }
+
+  private disposeCoinMeshChildren(): void {
     while (this.group.children.length) {
       const ch = this.group.children[0];
       this.group.remove(ch);
@@ -43,15 +128,18 @@ export class CollectibleController {
         else (mat as THREE.Material | undefined)?.dispose();
       });
     }
-    this.live.length = 0;
   }
 
   update(deltaSeconds: number): void {
+    const t = performance.now() * 0.001;
     for (const item of this.live) {
       if (item.spec.collected) continue;
-      item.group.rotation.y += deltaSeconds * 2.8;
+      item.group.rotation.y += deltaSeconds * 3.35;
+      const pulse = 1 + 0.11 * Math.sin(t * 3.15 + item.spec.tileIndex * 0.73);
+      item.group.scale.setScalar(pulse);
       item.group.position.y =
-        item.spec.y + Math.sin(performance.now() * 0.004 + item.spec.tileIndex) * 0.08;
+        item.spec.y +
+        Math.sin(performance.now() * 0.0048 + item.spec.tileIndex) * 0.12;
     }
   }
 

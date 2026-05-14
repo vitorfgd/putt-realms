@@ -451,7 +451,9 @@ export function adaptProcgenMapToGeneratedLevel(
   }
 
   const progressionLevel = progressionLevelFromDebug(map);
-  const portalSpecs = portalHazardSpecsFromMap(map, tiles, path);
+  const portalSpecsAll = portalHazardSpecsFromMap(map, tiles, path);
+  /** Gameplay uses the cup + hole sink at {@link map.holePosition}; skip the finish teleporter mesh. */
+  const portalSpecs = portalSpecsAll.filter((s) => s.portalMode !== "finish");
   const reservedPortalTiles = new Set(portalSpecs.map((spec) => spec.tileIndex));
   const scatterSpecs = generateHazardSpecs(
     progressionLevel ?? opts.levelIndex,
@@ -486,7 +488,11 @@ export function adaptProcgenMapToGeneratedLevel(
       y: map.holePosition.y,
       z: map.holePosition.z,
     },
-    ...(map.finishKind ? { finishKind: map.finishKind } : {}),
+    ...(map.finishKind === "portal"
+      ? { finishKind: "hole" as const }
+      : map.finishKind
+        ? { finishKind: map.finishKind }
+        : {}),
     bounds,
     surface,
     procgenDebugInfo: map.debugInfo,
@@ -496,6 +502,7 @@ export function adaptProcgenMapToGeneratedLevel(
     realmId: "sky_meadow",
     collectibles: [],
     railColliders: buildRailColliders(tiles),
+    procgenSourceMap: map,
   };
   if (!opts.skipGameplayValidation) {
     validateAdaptedLevel(level);

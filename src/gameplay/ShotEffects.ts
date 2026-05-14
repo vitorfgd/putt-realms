@@ -114,7 +114,92 @@ export class ShotEffects {
   }
 
   onCoinPickup(pos: THREE.Vector3): void {
-    this.spawnBurst(pos, 12, 0xffd84a);
+    this.spawnBurst(pos, 28, 0xffd84a);
+    this.spawnBurst(pos, 16, 0xfff8c8);
+    this.spawnBurst(pos, 12, 0xffee66);
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      this.spawnParticle(pos.clone().add(new THREE.Vector3(0, 0.12, 0)), this.sparkleMat, {
+        x: Math.cos(a) * (0.8 + Math.random() * 1.4),
+        y: 0.6 + Math.random() * 1.8,
+        z: Math.sin(a) * (0.8 + Math.random() * 1.4),
+      }, 0.4 + Math.random() * 0.35);
+    }
+  }
+
+  onHoleSuctionStart(pos: THREE.Vector3): void {
+    const whoosh = makeDiscMaterial(0xc8f8ff, 0.88);
+    const star = makeDiscMaterial(0xffee66, 0.95);
+    const voidDust = makeDiscMaterial(0x7a5cff, 0.82);
+    const ringN = 40;
+    for (let i = 0; i < ringN; i++) {
+      const a = (i / ringN) * Math.PI * 2 + Math.random() * 0.15;
+      const rad = 1.05 + Math.random() * 1.05;
+      const px = pos.x + Math.cos(a) * rad;
+      const pz = pos.z + Math.sin(a) * rad;
+      const py = pos.y + 0.12 + Math.random() * 0.18;
+      const toCx = pos.x - px;
+      const toCz = pos.z - pz;
+      const len = Math.hypot(toCx, toCz) + 1e-4;
+      const sp = 3.2 + Math.random() * 3.8;
+      const mat = i % 5 === 0 ? voidDust : i % 3 === 0 ? star : whoosh;
+      this.spawnParticle(
+        new THREE.Vector3(px, py, pz),
+        mat,
+        {
+          x: (toCx / len) * sp + (Math.random() - 0.5) * 0.6,
+          y: 0.55 + Math.random() * 1.35,
+          z: (toCz / len) * sp + (Math.random() - 0.5) * 0.6,
+        },
+        0.26 + Math.random() * 0.2,
+      );
+    }
+    this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.35, 0)), 18, 0xfff0c8);
+    this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 12, 0xff9ad2);
+    whoosh.dispose();
+    star.dispose();
+    voidDust.dispose();
+  }
+
+  /** Radial “poof” when the ball drops into the cup portal */
+  onHolePoof(pos: THREE.Vector3): void {
+    const voidSnap = makeDiscMaterial(0x2a1848, 0.9);
+    for (let i = 0; i < 26; i++) {
+      const ang = (i / 26) * Math.PI * 2 + Math.random() * 0.12;
+      const rad = 0.22 + Math.random() * 0.42;
+      const px = pos.x + Math.cos(ang) * rad;
+      const pz = pos.z + Math.sin(ang) * rad;
+      const py = pos.y + 0.08;
+      const toCx = pos.x - px;
+      const toCz = pos.z - pz;
+      const len = Math.hypot(toCx, toCz) + 1e-4;
+      this.spawnParticle(
+        new THREE.Vector3(px, py, pz),
+        voidSnap,
+        {
+          x: (toCx / len) * (5.5 + Math.random() * 3),
+          y: 0.85 + Math.random() * 2.4,
+          z: (toCz / len) * (5.5 + Math.random() * 3),
+        },
+        0.22 + Math.random() * 0.16,
+      );
+    }
+    voidSnap.dispose();
+    for (let i = 0; i < 44; i++) {
+      const ang = (i / 44) * Math.PI * 2 + Math.random() * 0.2;
+      const mat = this.confettiMats[i % this.confettiMats.length]!;
+      this.spawnParticle(
+        pos.clone().add(new THREE.Vector3(0, 0.12, 0)),
+        mat,
+        {
+          x: Math.cos(ang) * (1.4 + Math.random() * 2.2),
+          y: 0.5 + Math.random() * 2.1,
+          z: Math.sin(ang) * (1.4 + Math.random() * 2.2),
+        },
+        0.55 + Math.random() * 0.45,
+      );
+    }
+    this.spawnBurst(pos, 16, 0xfff0b0);
   }
 
   onHoleScore(pos: THREE.Vector3): void {
@@ -241,17 +326,19 @@ export class ShotEffects {
 
 export function createCoinMesh(value: number): THREE.Group {
   const group = new THREE.Group();
+  const r = 0.31 + value * 0.026;
+  const h = 0.1;
   const coin = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.22 + value * 0.02, 0.22 + value * 0.02, 0.07, 16),
+    new THREE.CylinderGeometry(r, r, h, 20),
     goldCoin().clone(),
   );
   coin.rotation.x = Math.PI / 2;
   const glow = new THREE.Mesh(
-    new THREE.RingGeometry(0.28, 0.4, 18),
+    new THREE.RingGeometry(r * 1.22, r * 1.62, 22),
     makeDiscMaterial(0xfff0a0, 0.36),
   );
   glow.rotation.x = -Math.PI / 2;
-  glow.position.y = -0.03;
+  glow.position.y = -0.042;
   group.add(coin, glow);
   return group;
 }

@@ -46,6 +46,20 @@ export interface GenerateMapRequest {
   layout?: ProcgenLayoutMode;
 }
 
+/**
+ * Snapshot of the last {@link GenerateMapRequest} sent to the procgen endpoint (in-game or equivalent),
+ * stored under {@link GeneratedLevel.procgenDebugInfo} `endpointReplay` for QA / external replay.
+ */
+export type ProcgenEndpointReplayPayload = Pick<
+  GenerateMapRequest,
+  | "seed"
+  | "levelIndex"
+  | "targetDifficulty"
+  | "maxTiles"
+  | "allowRamps"
+  | "allowCurves"
+> & { layout?: ProcgenLayoutMode };
+
 export interface Footprint {
   /** Half-extent along local X (right of lane). */
   halfWidth: number;
