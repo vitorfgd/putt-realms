@@ -29,6 +29,7 @@ const DEFAULT_MODELS_BASE = publicUrl("assets/models/");
  * `fanRotor` prefixes (see `implementations.ts`). **`fan.glb`:** first mesh = body, second = blades (spin). If names are missing, a sibling heuristic picks likely rotor geometry.
  *
  * **Procgen tiles:** FBX keys try `.fbx` first, then the same basename with `.glb`.
+ * GLB-only keys try `.glb` first, then the same basename with `.fbx` (artist can ship either).
  * Artist sources may live in repo `/Tiles/` — deploy copies under `public/assets/models/`
  * using names from {@link ASSET_FILENAMES} (e.g. `tile_straight_rw.fbx`).
  */
@@ -154,7 +155,8 @@ export class AssetRegistry {
     };
 
     if (key === "hole_flag") {
-      const candidates = ["flag.glb", ASSET_FILENAMES.hole_flag];
+      // Prefer glTF+BIN shipped in-repo; try single-file GLB last (avoids a pointless 404 on Pages).
+      const candidates = [ASSET_FILENAMES.hole_flag, "flag.glb"];
       for (const file of candidates) {
         const url = `${base}${file}`;
         try {
@@ -174,11 +176,15 @@ export class AssetRegistry {
     }
 
     const file = ASSET_FILENAMES[key];
-    const urlsToTry =
-      file.endsWith(".fbx")
+    const urlsToTry = file.endsWith(".fbx")
+      ? [
+          `${base}${file}`,
+          `${base}${file.replace(/\.fbx$/i, ".glb")}`,
+        ]
+      : file.endsWith(".glb")
         ? [
             `${base}${file}`,
-            `${base}${file.replace(/\.fbx$/i, ".glb")}`,
+            `${base}${file.replace(/\.glb$/i, ".fbx")}`,
           ]
         : [`${base}${file}`];
 

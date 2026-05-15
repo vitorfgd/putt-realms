@@ -5,11 +5,12 @@ import {
   warmCreamStone,
   woodBrown,
 } from "../../art/Materials";
+import { publicUrl } from "../../core/publicPath";
 
 /** Fallback tint before atlas grass map finishes loading */
 export const GRASS_COLOR = 0x98dba8;
 
-const DECK_GRASS_ATLAS_URL = encodeURI("/assets/models/tile tex 256.png");
+const DECK_GRASS_ATLAS_URL = encodeURI(publicUrl("assets/models/tile tex 256.png"));
 
 /** Grass checkerboard region in `tile tex 256.png` (atlas is 256×256) */
 const GRASS_ATLAS_CROP = { sx: 0, sy: 0, sw: 182, sh: 182 } as const;

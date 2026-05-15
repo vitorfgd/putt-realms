@@ -1,3 +1,5 @@
+import { publicUrl } from "../core/publicPath";
+
 /**
  * Yip portrait + dialogue frame URLs. Copy PNGs from your art pack into
  * `public/assets/ui/yip/` using these filenames (see `public/assets/ui/yip/README.md`).
@@ -20,7 +22,7 @@ export type YipExpression =
   | "reward_coins"
   | "celebrating";
 
-const BASE = "/assets/ui/yip";
+const BASE = publicUrl("assets/ui/yip");
 
 export const YIP_DIALOGUE_FRAME = `${BASE}/dialogue_frame.png`;
 

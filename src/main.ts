@@ -1,4 +1,5 @@
 import "./style.css";
+import { publicUrl } from "./core/publicPath";
 import { assetRegistry } from "./art/AssetRegistry";
 import { USE_PROCGEN_ENDPOINT } from "./core/Constants";
 import { Game } from "./core/Game";
@@ -6,6 +7,11 @@ import { BACKGROUND_FLOATING_ISLAND_KEYS } from "./level/backgroundFloatingIslan
 import { ISLAND_DECOR_ASSET_KEYS } from "./level/islandDecorScatter";
 import { PROCGEN_PRELOAD_KEYS } from "./procgen/procgenAssetKeys";
 import { preloadDeckGrassTexture } from "./level/tiles/tileMaterials";
+
+document.documentElement.style.setProperty(
+  "--hud-skip-btn-bg",
+  `url("${publicUrl("assets/ui/skip_level.png")}")`,
+);
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 const hud = document.querySelector<HTMLElement>("#hud");

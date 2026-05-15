@@ -7,6 +7,7 @@ import type { MushroomTipTier } from "../progression/ftueState";
 import type { FtueIntroLine } from "./ftueScript";
 import { YIP_MUSHROOM_TIP } from "./ftueScript";
 import { YIP_DIALOGUE_FRAME, YIP_EXPRESSION_URL } from "./yipFtueAssets";
+import { publicUrl } from "../core/publicPath";
 
 const LS_TUTORIAL = "pmg_seen_tutorial_v1";
 
@@ -151,7 +152,7 @@ export class GameOverlays {
           <div class="realm-route__picture">
             <img
               class="realm-route__bg"
-              src="/assets/ui/realm_run_frame.png"
+              src="${publicUrl("assets/ui/realm_run_frame.png")}"
               alt=""
               width="967"
               height="348"
@@ -200,7 +201,7 @@ export class GameOverlays {
         <div class="run-summary__frame">
           <img
             class="run-summary__bg"
-            src="/assets/ui/run_summary_frame.png"
+            src="${publicUrl("assets/ui/run_summary_frame.png")}"
             alt=""
             width="520"
             height="620"
@@ -234,10 +235,10 @@ export class GameOverlays {
           </p>
           <div class="run-summary__footer">
             <button type="button" class="run-summary__btn" data-action="continue" aria-label="Next level">
-              <img src="/assets/ui/run_summary_btn_next.png" alt="" width="280" height="96" decoding="async" />
+              <img src="${publicUrl("assets/ui/run_summary_btn_next.png")}" alt="" width="280" height="96" decoding="async" />
             </button>
             <button type="button" class="run-summary__btn" data-action="shop" aria-label="Shop">
-              <img src="/assets/ui/run_summary_btn_shop.png" alt="" width="280" height="96" decoding="async" />
+              <img src="${publicUrl("assets/ui/run_summary_btn_shop.png")}" alt="" width="280" height="96" decoding="async" />
             </button>
           </div>
         </div>

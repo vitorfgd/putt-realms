@@ -1344,7 +1344,8 @@ body {
   text-indent: -9999px;
   overflow: hidden;
   background-color: transparent;
-  background-image: url("/assets/ui/skip_level.png");
+  /* URL set from main.ts via --hud-skip-btn-bg (respects import.meta.env.BASE_URL on GitHub Pages) */
+  background-image: var(--hud-skip-btn-bg);
   background-repeat: no-repeat;
   background-position: 50% 50%;
   background-size: contain;
