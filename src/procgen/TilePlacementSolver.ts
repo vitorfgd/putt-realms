@@ -69,6 +69,11 @@ export function centerOffsets(path: GridCell[]): { cx: number; cz: number } {
   return { cx: (minx + maxx) / 2, cz: (minz + maxz) / 2 };
 }
 
+/** Canonical yaw in (−π, π] — e.g. `3π/2` → `−π/2` (same transform, stabler matrices / frustum). */
+export function normalizeYawRad(y: number): number {
+  return Math.atan2(Math.sin(y), Math.cos(y));
+}
+
 /** Center only on Z — double-row uses explicit world X from {@link doubleRowDeckCenterX}. */
 function centerZForPath(path: GridCell[]): number {
   let minz = Infinity;
@@ -143,7 +148,7 @@ function pushDoubleRowTile(
     id: params.id,
     tileType: params.tileType,
     position: pivotWorld.clone(),
-    rotationY: params.rotationY,
+    rotationY: normalizeYawRad(params.rotationY),
     anchor: pivotWorld.clone(),
     entrySocket: def.entrySocket,
     exitSocket: def.exitSocket,
@@ -913,7 +918,7 @@ export function repairMisclassifiedFloorPlainAfterGridShift(
 
     const def = getTileDefinition(tileType);
     tile.tileType = tileType;
-    tile.rotationY = rotationY;
+    tile.rotationY = normalizeYawRad(rotationY);
     tile.entrySocket = def.entrySocket;
     tile.exitSocket = def.exitSocket;
     tile.modelKey = def.modelKey;
@@ -1105,7 +1110,7 @@ export function solveDoubleRowStraightPath(
       id: `pg-2row-${z}-x${x}-${tileType}`,
       tileType,
       position: pivotWorld.clone(),
-      rotationY,
+      rotationY: normalizeYawRad(rotationY),
       anchor: pivotWorld.clone(),
       entrySocket: def.entrySocket,
       exitSocket: def.exitSocket,
@@ -1196,7 +1201,7 @@ export function solveTilesAlongPath(
       id: `pg-${i}-${tileType}`,
       tileType,
       position: pivotWorld.clone(),
-      rotationY,
+      rotationY: normalizeYawRad(rotationY),
       anchor: pivotWorld.clone(),
       entrySocket: def.entrySocket,
       exitSocket: def.exitSocket,

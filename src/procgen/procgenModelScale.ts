@@ -23,20 +23,36 @@ export const PROC_GEN_MODEL_TARGET_MAX_EXTENT = 2;
 export const PROC_GEN_TILE_MODEL_EXTENT = TILE_LENGTH; // 6
 
 /**
- * The current L-corner/end-cap source art includes wall thickness on both horizontal
- * axes (`210 x 210`), while straight/ramp wall assets are `210 x 200`.
- * Scaling both by their Z extent made corner walls about 0.15 world units shorter.
- * Use the same 210/200 ratio for corner-family assets so wall outside faces align.
+ * Source tile art convention:
+ * - every playable grass base is 200 x 200 source units;
+ * - walls live outside that base (for example right-wall straights are 220 x 200).
+ *
+ * Placement must scale and align by this grass base, not by the total model bounds, or
+ * exterior wall thickness starts changing tile spacing and produces overlapping floors.
  */
-export const PROC_GEN_CORNER_MODEL_EXTENT = TILE_LENGTH * 1.05; // 6.3
+export const PROC_GEN_SOURCE_GRASS_BASE_EXTENT = 200;
 
+/**
+ * Target max horizontal footprint for scaling (see {@link scaleProcgenModelToWorldUnits}).
+ * Corner family meshes are authored slightly larger than straights; matching that here
+ * keeps outer wall faces flush with adjacent straights.
+ */
 export function procgenModelExtentForAssetKey(assetKey: string): number {
-  return assetKey === "tile_convex_rw" ||
-    assetKey === "tile_concave_rw" ||
-    assetKey === "tile_start_ph" ||
-    assetKey === "tile_hole_ph"
-    ? PROC_GEN_CORNER_MODEL_EXTENT
-    : PROC_GEN_TILE_MODEL_EXTENT;
+  void assetKey;
+  return PROC_GEN_TILE_MODEL_EXTENT;
+}
+
+/**
+ * {@link FBXLoader} roots often carry DCC export TRS (e.g. axis flips).
+ * Procgen catalog math assumes a **neutral** root: mesh geometry lives in children.
+ * Scaling / pivot offsets on a rotated root apply in the wrong local frame and tiles
+ * drift off the grid while deck labels (from solver pivot + catalog) stay correct.
+ */
+export function resetProcgenAssetInstanceRoot(node: THREE.Object3D): void {
+  node.position.set(0, 0, 0);
+  node.rotation.set(0, 0, 0);
+  node.scale.set(1, 1, 1);
+  node.updateMatrix();
 }
 
 /**
@@ -67,6 +83,17 @@ export function scaleProcgenModelToWorldUnits(
 }
 
 /**
+ * Scale procgen tile art so the 200 x 200 grass base maps to the world tile size.
+ * Exterior walls are intentionally allowed to extend outside the resulting footprint.
+ */
+export function scaleProcgenModelGrassBaseToWorldUnits(
+  root: THREE.Object3D,
+  targetGrassExtent = TILE_LENGTH,
+): void {
+  root.scale.setScalar(targetGrassExtent / PROC_GEN_SOURCE_GRASS_BASE_EXTENT);
+}
+
+/**
  * After scale/rotate, top-left pivots can leave the mesh floating when the root is at y=0.
  * Shifts the clone in **local Y** so the world AABB minimum sits on `groundY`.
  */
@@ -91,8 +118,9 @@ export function snapModelBottomToLocalGround(
  * is always the floor, not the wall top.
  *
  * ### When to call
- * Call **after** {@link scaleProcgenModelToWorldUnits} **and after**
- * {@link centerModelOnDeckOrigin} (so the model is centred and bottom-snapped first).
+ * Call **after** {@link scaleProcgenModelToWorldUnits} **and after** placing the model
+ * on the deck (pivot offset + {@link snapModelBottomToLocalGround}, or
+ * {@link centerModelOnDeckOrigin} for non-catalog assets).
  * The returned Y is in the model's local space (= world space before the piece group
  * applies rotationY).
  *
@@ -128,7 +156,8 @@ export function measureRampExitFloorY(
 }
 
 /**
- * After {@link scaleProcgenModelToWorldUnits} and {@link centerModelOnDeckOrigin},
+ * After {@link scaleProcgenModelToWorldUnits} and deck placement (catalog pivot + bottom snap
+ * or {@link centerModelOnDeckOrigin}),
  * shifts the model in local Y so its **exit-floor** (the floor at the high-Z end,
  * measured by vertex sampling) lands exactly at `targetExitFloorY`.
  *
@@ -136,7 +165,7 @@ export function measureRampExitFloorY(
  * while preserving all model proportions (only a pure Y translation, no deformation).
  *
  * @param targetExitFloorY - Desired exit-floor height in the model's local space.
- *   Pass `RAMP_HEIGHT` (= 2) to match the catalog elevation delta.
+ *   Pass `RAMP_HEIGHT` to match the catalog elevation delta.
  */
 export function snapRampExitFloorToHeight(
   root: THREE.Object3D,
@@ -172,4 +201,23 @@ export function centerModelOnDeckOrigin(
   const cx = (box.min.x + box.max.x) / 2;
   const cz = (box.min.z + box.max.z) / 2;
   root.position.set(-cx, groundY - box.min.y, -cz);
+}
+
+/**
+ * Align the 200 x 200 source grass base to the deck origin and snap the model bottom.
+ *
+ * The current tile FBXs are authored with the grass base at local X/Z 0..200. Any
+ * wall thickness outside that base remains outside the tile after placement, so
+ * neighboring grass bases meet without overlapping.
+ */
+export function alignProcgenModelGrassBaseToDeckOrigin(
+  root: THREE.Object3D,
+  groundY = 0,
+): void {
+  root.position.set(0, 0, 0);
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  if (!Number.isFinite(box.min.y)) return;
+  const baseCenter = (PROC_GEN_SOURCE_GRASS_BASE_EXTENT * root.scale.x) / 2;
+  root.position.set(-baseCenter, groundY - box.min.y, -baseCenter);
 }

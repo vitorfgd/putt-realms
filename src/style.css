@@ -19,6 +19,8 @@ body {
     "Segoe UI",
     Roboto,
     sans-serif;
+  /** Portrait gameplay strip width — shared by HUD column and realm-run banner */
+  --game-strip-width: min(100vw, calc(100vh * 9 / 18));
 }
 
 #app {
@@ -161,7 +163,7 @@ body {
   align-items: center;
   justify-content: center;
   width: 100%;
-  max-width: min(100vw, calc(100vh * 10 / 18));
+  max-width: min(var(--game-strip-width, 100vw), calc(100vh * 10 / 18));
   margin-inline: auto;
   box-sizing: border-box;
   padding-inline: clamp(4px, 1.2vw, 10px);
@@ -171,7 +173,7 @@ body {
 .realm-route__frame {
   position: relative;
   width: 100%;
-  max-width: min(404px, calc(min(100vw, 100vh * 10 / 18) * 0.94));
+  max-width: min(404px, calc(min(var(--game-strip-width, 100vw), 100vh * 10 / 18) * 0.94));
   margin-inline: auto;
   filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.42));
 }
@@ -345,8 +347,8 @@ body {
 
 .run-summary__frame {
   position: relative;
-  width: min(88vw, 420px);
-  max-width: 420px;
+  width: min(88vw, var(--game-strip-width, 100vw), 420px);
+  max-width: min(420px, var(--game-strip-width, 100vw));
   overflow: hidden;
   border-radius: 8px;
   filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.38));
@@ -667,7 +669,7 @@ body {
 /** Align HUD column with portrait gameplay strip (same 9:18 as {@link GAMEPLAY_ASPECT} in app code) */
 @media (min-aspect-ratio: 9 / 18) {
   #hud.hud {
-    width: min(100vw, calc(100vh * 9 / 18));
+    width: var(--game-strip-width);
     left: 50%;
     right: auto;
     transform: translateX(-50%);
@@ -1052,6 +1054,168 @@ body {
 .hud-badge__meta--imperfect {
   font-style: italic;
   opacity: 0.75;
+}
+
+.hud-leaderboard-entry {
+  position: absolute;
+  z-index: 8100;
+  top: calc(env(safe-area-inset-top) + clamp(78px, 18vw, 104px));
+  right: calc(env(safe-area-inset-right) + clamp(10px, 3vw, 18px));
+  pointer-events: auto;
+}
+
+.hud-leaderboard-btn {
+  display: block;
+  width: clamp(132px, 39vw, 196px);
+  aspect-ratio: 900 / 262;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  filter: drop-shadow(0 5px 8px rgba(0, 0, 0, 0.42));
+}
+
+.hud-leaderboard-btn img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hud-leaderboard-btn:active {
+  transform: translateY(1px) scale(0.97);
+}
+
+.hud-leaderboard {
+  position: fixed;
+  inset: 0;
+  z-index: 8900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.hud-leaderboard--hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hud-leaderboard__shade {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 9, 20, 0.5);
+}
+
+.hud-leaderboard__card {
+  position: relative;
+  width: min(calc(var(--game-strip-width, 100vw) - 28px), 430px);
+  max-height: min(72vh, 560px);
+  padding: 18px 16px 16px;
+  border: 3px solid #ffc74d;
+  border-radius: 8px;
+  overflow: hidden;
+  color: #fff8cf;
+  background:
+    linear-gradient(180deg, rgba(80, 23, 130, 0.96), rgba(30, 12, 74, 0.98)),
+    radial-gradient(circle at 18% 0%, rgba(255, 214, 92, 0.22), transparent 42%);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.hud-leaderboard__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.hud-leaderboard__eyebrow {
+  display: block;
+  color: #ffe27c;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.hud-leaderboard__head h2 {
+  margin: 1px 0 0;
+  color: #ffffff;
+  font-size: clamp(26px, 7vw, 36px);
+  line-height: 1;
+  text-shadow: 0 3px 0 rgba(30, 8, 60, 0.85);
+}
+
+.hud-leaderboard__close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 2px solid #ffe28a;
+  border-radius: 50%;
+  color: #3b1800;
+  background: linear-gradient(180deg, #fff2a8, #dc8d16);
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.hud-leaderboard__list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hud-leaderboard__row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 54px;
+  align-items: center;
+  min-height: 42px;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 218, 103, 0.28);
+  border-radius: 8px;
+  background: rgba(16, 7, 46, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.hud-leaderboard__row--you {
+  border-color: #78ff9c;
+  background: rgba(25, 91, 59, 0.66);
+}
+
+.hud-leaderboard__rank,
+.hud-leaderboard__score {
+  color: #ffd65d;
+  font-weight: 950;
+  text-align: center;
+}
+
+.hud-leaderboard__rank {
+  font-size: 18px;
+}
+
+.hud-leaderboard__name {
+  min-width: 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 900;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hud-leaderboard__score {
+  font-size: 16px;
 }
 
 /* Reward toasts (temporary) */
@@ -1468,4 +1632,211 @@ body {
   display: block;
   width: 100%;
   height: auto;
+}
+
+/* —— Yip FTUE dialogue + in-play mushroom tips —— */
+.overlay-panel.ftue-panel {
+  z-index: 9200;
+  background: rgba(4, 12, 20, 0.52);
+  /* Room below frame for absolutely positioned hint */
+  padding-bottom: clamp(20px, 5vh, 56px);
+  box-sizing: border-box;
+}
+
+.overlay-panel.ftue-panel:not(.overlay-panel--hidden) {
+  cursor: pointer;
+}
+
+.ftue-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: min(95vw, 460px);
+}
+
+.ftue-flow__stage {
+  position: relative;
+  width: max-content;
+  max-width: 100%;
+}
+
+.ftue-flow__hint {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  margin: 0;
+  margin-top: clamp(8px, 1.8vh, 16px);
+  width: max-content;
+  max-width: min(93vw, 440px);
+  padding: 0 12px;
+  font-size: clamp(11px, 3vw, 13px);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #f4fbff;
+  text-shadow:
+    0 0 12px rgba(0, 0, 0, 0.75),
+    0 2px 8px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  user-select: none;
+}
+
+/**
+ * Frame sprite is the only chrome. ~30% portrait band / 70% copy (see grid columns).
+ */
+.ftue-dialog {
+  --ftue-max-w: 460px;
+  --ftue-w: min(91vw, var(--ftue-max-w));
+  box-sizing: border-box;
+  position: relative;
+  width: var(--ftue-w);
+  height: min(calc(var(--ftue-w) * 0.65), min(74vh, 470px));
+  max-width: 100%;
+  margin: 0;
+  padding-top: 7.9%;
+  padding-bottom: 7%;
+  padding-left: clamp(14px, 4.2vw, 26px);
+  padding-right: clamp(42px, 14vw, 78px);
+  display: grid;
+  grid-template-columns: 30% 70%;
+  grid-template-rows: minmax(10px, 0.28fr) auto auto minmax(0, 1fr);
+  column-gap: clamp(14px, 2.8vw, 26px);
+  row-gap: 5px;
+  align-items: start;
+  align-content: start;
+  justify-items: stretch;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  overflow: hidden;
+  direction: ltr;
+  pointer-events: none;
+}
+
+.ftue-dialog__portrait {
+  position: absolute;
+  top: calc(50% - clamp(3px, 0.7vh, 8px));
+  transform: translateY(-50%);
+  left: calc(clamp(14px, 4.2vw, 26px) + clamp(18px, 2.9vw, 28px));
+  width: min(108px, 30%);
+  max-width: 108px;
+  height: auto;
+  max-height: 78%;
+  object-fit: contain;
+  z-index: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.22));
+}
+
+.ftue-dialog__portrait--hidden {
+  visibility: hidden;
+}
+
+.ftue-dialog__eyebrow {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+  max-width: 100%;
+  padding-inline-start: clamp(6px, 1.4vw, 14px);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #2d4a28;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  overflow-wrap: anywhere;
+}
+
+.ftue-dialog__title {
+  grid-column: 2;
+  grid-row: 3;
+  margin: 0;
+  max-width: 100%;
+  padding-inline-start: clamp(6px, 1.4vw, 14px);
+  font-size: clamp(15px, 3.8vw, 19px);
+  font-weight: 900;
+  line-height: 1.18;
+  color: #231910;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.ftue-dialog__body {
+  grid-column: 2;
+  grid-row: 4;
+  margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
+  padding-inline-start: clamp(6px, 1.4vw, 14px);
+  align-self: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  font-size: clamp(13px, 3.4vw, 15px);
+  line-height: 1.46;
+  text-align: left;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  padding-bottom: 6px;
+}
+
+.ftue-dialog__p {
+  margin: 0 0 6px;
+  color: #3a2e24;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.ftue-dialog__p:last-child {
+  margin-bottom: 0;
+}
+
+.yip-tooltip-root {
+  position: absolute;
+  left: 50%;
+  bottom: min(20vh, 140px);
+  transform: translateX(-50%);
+  z-index: 9105;
+  pointer-events: none;
+  width: min(94vw, 440px);
+}
+
+.yip-tooltip-root--hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.yip-tooltip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 2px solid #ffe08a;
+  background: rgba(6, 18, 32, 0.94);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+.yip-tooltip__face {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.yip-tooltip__face--hidden {
+  visibility: hidden;
+}
+
+.yip-tooltip__text {
+  margin: 0;
+  font-size: clamp(13px, 3.6vw, 15px);
+  font-weight: 700;
+  line-height: 1.35;
+  color: rgba(248, 252, 255, 0.95);
 }

@@ -1,6 +1,10 @@
 import type { GeneratedLevel } from "../level/LevelTypes";
 import type { AudioSettings } from "../platform-browser/GameAudio";
 import type { QuestProgress } from "../progression/QuestService";
+import type { MushroomTipTier } from "../progression/ftueState";
+import type { FtueIntroLine } from "./ftueScript";
+import { YIP_MUSHROOM_TIP } from "./ftueScript";
+import { YIP_DIALOGUE_FRAME, YIP_EXPRESSION_URL } from "./yipFtueAssets";
 
 const LS_TUTORIAL = "pmg_seen_tutorial_v1";
 
@@ -21,6 +25,8 @@ export class GameOverlays {
   private readonly routePanel: HTMLElement;
   private readonly tutorialPanel: HTMLElement;
   private readonly summaryPanel: HTMLElement;
+  private readonly ftuePanel: HTMLElement;
+  private readonly yipTipRoot: HTMLElement;
   private readonly musicToggle: HTMLInputElement;
   private readonly sfxToggle: HTMLInputElement;
   private seenTutorial: Record<string, boolean> = {};
@@ -34,6 +40,10 @@ export class GameOverlays {
   onUiSound?: () => void;
 
   private shopToastTimer = 0;
+  private ftueScript: FtueIntroLine[] = [];
+  private ftueStep = 0;
+  private ftueCompleteCallback?: () => void;
+  private yipTipClear = 0;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement("div");
@@ -94,6 +104,20 @@ export class GameOverlays {
     this.summaryPanel = this.panel("summary-panel overlay-panel--hidden");
     this.root.appendChild(this.summaryPanel);
 
+    this.ftuePanel = this.panel("ftue-panel overlay-panel--hidden");
+    this.root.appendChild(this.ftuePanel);
+    this.ftuePanel.addEventListener("click", () => {
+      if (this.ftueScript.length === 0) return;
+      if (this.ftuePanel.classList.contains("overlay-panel--hidden")) return;
+      this.onFtueAdvance();
+    });
+
+    this.yipTipRoot = document.createElement("div");
+    this.yipTipRoot.className = "yip-tooltip-root yip-tooltip-root--hidden";
+    this.yipTipRoot.setAttribute("role", "status");
+    this.yipTipRoot.setAttribute("aria-live", "polite");
+    this.root.appendChild(this.yipTipRoot);
+
     this.loadSeenTutorial();
   }
 
@@ -152,7 +176,7 @@ export class GameOverlays {
     this.tutorialPanel.innerHTML = `
       <div class="tutorial-card">
         <span>Tip</span>
-        <strong>${title}</strong>
+        <strong>${escapeHtml(title)}</strong>
       </div>
     `;
     this.tutorialPanel.classList.remove("overlay-panel--hidden");
@@ -242,6 +266,111 @@ export class GameOverlays {
     window.clearTimeout(this.shopToastTimer);
     this.shopToastTimer = 0;
     this.summaryPanel.classList.add("overlay-panel--hidden");
+  }
+
+  /**
+   * Multi-step Yip intro on the first tutorial hole. Calls `onComplete` when the player
+   * finishes the script (or immediately if `steps` is empty).
+   */
+  startFtueIntro(steps: FtueIntroLine[], onComplete: () => void): void {
+    this.hideYipMushroomTip();
+    if (!steps.length) {
+      onComplete();
+      return;
+    }
+    this.ftueScript = steps;
+    this.ftueStep = 0;
+    this.ftueCompleteCallback = onComplete;
+    this.ftuePanel.classList.remove("overlay-panel--hidden");
+    this.renderFtueStep();
+  }
+
+  hideFtueIntro(): void {
+    this.ftuePanel.classList.add("overlay-panel--hidden");
+    this.ftuePanel.innerHTML = "";
+    this.ftueScript = [];
+    this.ftueStep = 0;
+    this.ftueCompleteCallback = undefined;
+  }
+
+  /** In-play reminder when the player hits bumper mushrooms (1st / 3rd / 6th lifetime hits). */
+  showYipMushroomTip(_tier: MushroomTipTier): void {
+    void _tier;
+    window.clearTimeout(this.yipTipClear);
+    const face = YIP_EXPRESSION_URL.worried;
+    this.yipTipRoot.innerHTML = `
+      <div class="yip-tooltip">
+        <img class="yip-tooltip__face" src="${face}" alt="" width="72" height="72" decoding="async" />
+        <p class="yip-tooltip__text">${escapeHtml(YIP_MUSHROOM_TIP)}</p>
+      </div>
+    `;
+    const img = this.yipTipRoot.querySelector("img");
+    img?.addEventListener("error", () => {
+      img.classList.add("yip-tooltip__face--hidden");
+    });
+    this.yipTipRoot.classList.remove("yip-tooltip-root--hidden");
+    this.yipTipClear = window.setTimeout(() => this.hideYipMushroomTip(), 5200);
+  }
+
+  hideYipMushroomTip(): void {
+    window.clearTimeout(this.yipTipClear);
+    this.yipTipClear = 0;
+    this.yipTipRoot.classList.add("yip-tooltip-root--hidden");
+    this.yipTipRoot.innerHTML = "";
+  }
+
+  private onFtueAdvance(): void {
+    this.onUiSound?.();
+    const last = this.ftueStep >= this.ftueScript.length - 1;
+    if (last) {
+      const done = this.ftueCompleteCallback;
+      this.hideFtueIntro();
+      done?.();
+      return;
+    }
+    this.ftueStep += 1;
+    this.renderFtueStep();
+  }
+
+  private renderFtueStep(): void {
+    const step = this.ftueScript[this.ftueStep];
+    if (!step) return;
+    const portrait = YIP_EXPRESSION_URL[step.expression];
+    const paras = step.body
+      .split(/\n\s*\n/)
+      .map((p) => `<p class="ftue-dialog__p">${escapeHtml(p.trim())}</p>`)
+      .join("");
+    this.ftuePanel.innerHTML = `
+      <div class="ftue-flow">
+        <div class="ftue-flow__stage">
+          <div
+            class="ftue-dialog"
+            role="dialog"
+            lang="en"
+            aria-labelledby="ftue-title"
+            aria-describedby="ftue-hint"
+            style="background-image:url('${YIP_DIALOGUE_FRAME}')"
+          >
+            <img
+              class="ftue-dialog__portrait"
+              src="${portrait}"
+              alt=""
+              width="112"
+              height="112"
+              decoding="async"
+            />
+            <p class="ftue-dialog__eyebrow">Yip</p>
+            <h2 id="ftue-title" class="ftue-dialog__title">${escapeHtml(step.title)}</h2>
+            <div class="ftue-dialog__body">${paras}</div>
+          </div>
+          <p class="ftue-flow__hint" id="ftue-hint">CLICK ANYWHERE TO PROCEED</p>
+        </div>
+      </div>
+    `;
+    const portraitEl = this.ftuePanel.querySelector(".ftue-dialog__portrait");
+    portraitEl?.addEventListener("error", () => {
+      portraitEl.classList.add("ftue-dialog__portrait--hidden");
+    });
   }
 
   private panel(className: string): HTMLElement {

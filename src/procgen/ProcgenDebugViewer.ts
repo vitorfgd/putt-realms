@@ -14,6 +14,7 @@ import { createIslandSurroundDecor } from "../level/islandDecorScatter";
 import { resolveProcgenUndermapPlacement } from "../level/resolveProcgenUndermapIslandSlots";
 import { buildUndermapIslandGroup } from "../level/undermapIslands";
 import { adaptProcgenMapToGeneratedLevel } from "../level/procgenLevelAdapter";
+import { buildTileGroup } from "../level/tiles/TileKit";
 import {
   createDebugEndpointLabels,
   createDebugPlaceholderGroup,
@@ -29,10 +30,10 @@ import {
 } from "./TileCatalog";
 import { PROCGEN_TILE_TO_ASSET } from "./procgenAssetKeys";
 import {
-  scaleProcgenModelToWorldUnits,
+  alignProcgenModelGrassBaseToDeckOrigin,
+  scaleProcgenModelGrassBaseToWorldUnits,
   snapRampExitFloorToHeight,
-  centerModelOnDeckOrigin,
-  procgenModelExtentForAssetKey,
+  resetProcgenAssetInstanceRoot,
 } from "./procgenModelScale";
 import {
   createSocketDebugGroup,
@@ -85,14 +86,9 @@ function cloneTileModel(type: TileType): THREE.Object3D | null {
   if (!key) return null;
   const node = assetRegistry.getModelClone(key);
   if (node) {
-    // Scale to full tile footprint using Z axis only (ignore wall height).
-    scaleProcgenModelToWorldUnits(
-      node,
-      procgenModelExtentForAssetKey(key),
-      true,
-    );
-    // Centre XZ on deck origin and snap bottom to y=0.
-    centerModelOnDeckOrigin(node, 0);
+    resetProcgenAssetInstanceRoot(node);
+    scaleProcgenModelGrassBaseToWorldUnits(node);
+    alignProcgenModelGrassBaseToDeckOrigin(node, 0);
     // For ramps: translate in Y so the exit floor (measured via vertex sampling at the
     // high-Z end) is exactly RAMP_HEIGHT — closes the vertical seam between ramp exit
     // and the next flat tile without deforming the model geometry.
@@ -592,18 +588,29 @@ export class ProcgenDebugViewer {
     this.debugOverlaysGroup.add(placeholders);
     this.debugOverlaysGroup.add(createDebugEndpointLabels(map));
 
-    for (const t of map.tiles) {
-      const def = getTileDefinition(t.tileType);
-      const deck = deckCenterWorldFromPivot(t.position, t.rotationY, def);
-      // cloneTileModel already centres the model on the deck origin (XZ) and
-      // snaps its bottom to y=0 — no extra pivot offset needed here.
-      const art = buildTileVisual(t.tileType);
-      const piece = new THREE.Group();
-      piece.position.set(deck.x, deck.y, deck.z);
-      piece.rotation.y = t.rotationY;
-      art.name = `procgen_debug_art_${t.tileType}_${t.id}`;
-      piece.add(art);
-      this.mapTilesGroup.add(piece);
+    // Full-map tiles: use the same {@link buildTileGroup} + worldX/Z contract as {@link LevelBuilder}
+    // so meshes match overlays (deck from pivot math) and hazards. The old clone-only path
+    // duplicated scaling/pivot steps and drifted from TileKit.
+    if (adapted) {
+      for (const gt of adapted.tiles) {
+        const piece = buildTileGroup(gt);
+        piece.position.set(gt.worldX, gt.worldY ?? 0, gt.worldZ);
+        piece.rotation.y = gt.rotationY;
+        piece.name = `procgen_debug_piece_${gt.type}_${gt.gridX}_${gt.gridZ}`;
+        this.mapTilesGroup.add(piece);
+      }
+    } else {
+      for (const t of map.tiles) {
+        const def = getTileDefinition(t.tileType);
+        const deck = deckCenterWorldFromPivot(t.position, t.rotationY, def);
+        const art = buildTileVisual(t.tileType);
+        const piece = new THREE.Group();
+        piece.position.set(deck.x, deck.y, deck.z);
+        piece.rotation.y = t.rotationY;
+        art.name = `procgen_debug_art_${t.tileType}_${t.id}`;
+        piece.add(art);
+        this.mapTilesGroup.add(piece);
+      }
     }
 
     if (adapted) {

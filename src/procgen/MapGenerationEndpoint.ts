@@ -19,6 +19,7 @@ import {
   isPortraitReasonable,
   isTurnStation,
   laneCellsForDir,
+  normalizeYawRad,
   repairMisclassifiedFloorPlainAfterGridShift,
   solveDoubleRowStraightPath,
   solveTilesAlongPath,
@@ -726,7 +727,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
             id: `${map.id}-dead-s${s}-p${pi}`,
             tileType: "dead_end_cap",
             position: pivotWorld.clone(),
-            rotationY,
+            rotationY: normalizeYawRad(rotationY),
             anchor: pivotWorld.clone(),
             entrySocket: deadDef.entrySocket,
             exitSocket: deadDef.exitSocket,
@@ -779,11 +780,13 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
           const isRight = keyCellGrid(cell) === rightKey;
           const startDef = getTileDefinition("start_placeholder");
           c.tileType = "start_placeholder";
-          c.rotationY = capRotationForLane(
-            travel.x,
-            travel.z,
-            isRight,
-            "start",
+          c.rotationY = normalizeYawRad(
+            capRotationForLane(
+              travel.x,
+              travel.z,
+              isRight,
+              "start",
+            ),
           );
           c.entrySocket = startDef.entrySocket;
           c.exitSocket = startDef.exitSocket;
@@ -1121,6 +1124,8 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
       { x: 0, z: 0 },
       { x: 0, z: 1 },
       { x: 0, z: 2 },
+      { x: 0, z: 3 },
+      { x: 0, z: 4 },
     ];
     const rng = mulberry32(hashSeed(`${request.seed}|tutorial`));
     const solved = solveTilesAlongPath(path, {

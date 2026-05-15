@@ -265,6 +265,10 @@ export class PlayableLevelService {
     return this.levelGenerator;
   }
 
+  /**
+   * When {@link USE_PROCGEN_ENDPOINT} is true: endpoint + {@link adaptProcgenMapToGeneratedLevel}.
+   * When false: {@link LevelGenerator} grid (legacy / QA toggle in {@link Constants}).
+   */
   generate(levelIndex: number, previousDifficultyScore?: number): GeneratedPlayableLevel {
     const level = USE_PROCGEN_ENDPOINT
       ? this.generateProcgen(levelIndex, previousDifficultyScore)

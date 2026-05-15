@@ -2,6 +2,12 @@ import * as THREE from "three";
 import { AimIndicator } from "../gameplay/AimIndicator";
 import { Ball } from "../gameplay/Ball";
 import {
+  computeBallFollowCameraPose,
+  computePortraitGameplayRect,
+  computeTopDownCameraPose,
+  disposeObject3D,
+} from "./gameCameraAndLayout";
+import {
   SimpleBallPhysics,
   type PhysicsStepEnvironment,
 } from "../gameplay/SimpleBallPhysics";
@@ -17,7 +23,7 @@ import {
   resizeLevelBackdropMesh,
 } from "../level/levelBackground";
 import { maxCourseSurfaceHeight } from "../level/courseSurface";
-import type { GeneratedLevel, LevelWorldBounds } from "../level/LevelTypes";
+import type { GeneratedLevel } from "../level/LevelTypes";
 import { holeCupRadius } from "../level/TileDimensions";
 import { BALL_COSMETIC_BODY_HEX } from "../cosmetics/cosmeticCatalog";
 import { CosmeticService } from "../cosmetics/CosmeticService";
@@ -34,9 +40,6 @@ import {
   OOB_Z_EXTRA,
   POWER_FULL_DRAG_WORLD,
   PREVIEW_CAMERA_DURATION,
-  GAMEPLAY_CAM_BACK_DIST,
-  GAMEPLAY_CAM_HEIGHT,
-  GAMEPLAY_CAM_HORIZ_SCALE,
   CAM_ORBIT_RAD_PER_PX,
   ENABLE_DECOR_CAMERA_OCCLUSION,
   isPsxLowResPipelineActive,
@@ -47,6 +50,7 @@ import {
   STUCK_SKIP_PLANAR_SPEED,
   STUCK_SKIP_SECONDS,
 } from "./Constants";
+import { configureCourseShadows } from "./configureCourseShadows";
 import {
   RunEvent,
   RunPhase,
@@ -74,108 +78,18 @@ import {
   type HoleStatsDraft,
 } from "../progression/TelemetryService";
 import { QuestService } from "../progression/QuestService";
-
-/** Cup mesh is tilted to XZ — spin around world Y so the portal swirls in the grass plane */
+import {
+  isFtueIntroComplete,
+  markFtueIntroComplete,
+  recordMushroomBumperHit,
+} from "../progression/ftueState";
+import { FTUE_INTRO_SCRIPT } from "../ui/ftueScript";
 const HOLE_PORTAL_WORLD_UP = new THREE.Vector3(0, 1, 0);
 
 /** Letterbox bars — deep sky hue (not harsh black) */
 const LETTERBOX_CLEAR = 0x3d78a8;
 const START_LEVEL_INDEX = 1;
-const MIN_CAMERA_ZOOM = 0.58;
-const MAX_CAMERA_ZOOM = 1.9;
 const TEE_CENTER_NUDGE = 0.75;
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
-
-function computePortraitGameplayRect(
-  innerWidth: number,
-  innerHeight: number,
-): { x: number; y: number; width: number; height: number } {
-  let gw = innerWidth;
-  let gh = gw / GAMEPLAY_ASPECT;
-  if (gh > innerHeight) {
-    gh = innerHeight;
-    gw = gh * GAMEPLAY_ASPECT;
-  }
-  const x = (innerWidth - gw) / 2;
-  const yTop = (innerHeight - gh) / 2;
-  const yBottom = innerHeight - yTop - gh;
-  return { x, y: yBottom, width: gw, height: gh };
-}
-
-/**
- * Eye sits behind the ball along the line to the hole so the cup stays in front — easier to aim than a fixed course shot.
- */
-function computeBallFollowCameraPose(
-  ballX: number,
-  ballZ: number,
-  holeX: number,
-  holeZ: number,
-  outPos: THREE.Vector3,
-  outTarget: THREE.Vector3,
-  ballY = 0,
-  yawOffset = 0,
-  zoomScale = 1,
-): void {
-  let fx = holeX - ballX;
-  let fz = holeZ - ballZ;
-  const len = Math.hypot(fx, fz);
-  if (len < 0.2) {
-    fx = 0;
-    fz = 1;
-  } else {
-    fx /= len;
-    fz /= len;
-  }
-  const zoom = clamp(zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
-  const ox = -fx * GAMEPLAY_CAM_BACK_DIST * zoom;
-  const oz = -fz * GAMEPLAY_CAM_BACK_DIST * zoom;
-  const c = Math.cos(yawOffset);
-  const s = Math.sin(yawOffset);
-  const rx = ox * c + oz * s;
-  const rz = -ox * s + oz * c;
-  const eyeY =
-    GAMEPLAY_CAM_HEIGHT * zoom + Math.min(4.5, Math.max(0, ballY)) * 0.42;
-  outPos.set(
-    ballX + rx * GAMEPLAY_CAM_HORIZ_SCALE,
-    eyeY,
-    ballZ + rz * GAMEPLAY_CAM_HORIZ_SCALE,
-  );
-  const tgtY = Ball.RADIUS * 0.58 + ballY;
-  outTarget.set(ballX, tgtY, ballZ);
-}
-
-function computeTopDownCameraPose(
-  bounds: LevelWorldBounds,
-  outPos: THREE.Vector3,
-  outTarget: THREE.Vector3,
-  zoomScale = 1,
-  panX = 0,
-  panZ = 0,
-): void {
-  const cx = (bounds.minX + bounds.maxX) / 2 + panX;
-  const cz = (bounds.minZ + bounds.maxZ) / 2 + panZ;
-  const dx = bounds.maxX - bounds.minX;
-  const dz = bounds.maxZ - bounds.minZ;
-  const span = Math.max(32, dx, dz);
-  const y = (span * 1.45 + 42) * clamp(zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
-  outPos.set(cx, y, cz);
-  outTarget.set(cx, 0, cz);
-}
-
-function disposeObject3D(obj: THREE.Object3D): void {
-  obj.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (m.isMesh) {
-      m.geometry?.dispose();
-      const mat = m.material;
-      if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-      else (mat as THREE.Material | undefined)?.dispose();
-    }
-  });
-}
 
 export class Game {
   private readonly scene = new THREE.Scene();
@@ -641,11 +555,34 @@ export class Game {
 
   private showLevelIntroOverlays(): void {
     this.overlays.showRoute(this.generatedLevel);
-    this.overlays.showTutorialOnce(
-      "drag",
-      "Drag to Putt",
-      "Pull from the ball, release, then use the preview to plan bigger realm holes.",
-    );
+    const tutorialHole =
+      this.generatedLevel.levelIndex === 1 &&
+      this.generatedLevel.procgenDebugInfo?.tutorial === true;
+    if (tutorialHole && !isFtueIntroComplete()) {
+      window.setTimeout(() => {
+        this.paused = true;
+        this.overlays.startFtueIntro(FTUE_INTRO_SCRIPT, () => {
+          this.paused = false;
+          markFtueIntroComplete();
+          this.showPostFtueIntroTips();
+        });
+      }, 2360);
+      return;
+    }
+    this.showPostFtueIntroTips();
+  }
+
+  private showPostFtueIntroTips(): void {
+    const tutorialHole =
+      this.generatedLevel.levelIndex === 1 &&
+      this.generatedLevel.procgenDebugInfo?.tutorial === true;
+    if (!tutorialHole) {
+      this.overlays.showTutorialOnce(
+        "drag",
+        "Drag to Putt",
+        "Pull from the ball, release, then use the preview to plan bigger realm holes.",
+      );
+    }
     if (this.generatedLevel.collectibles.length > 0) {
       this.overlays.showTutorialOnce(
         "coins",
@@ -928,34 +865,11 @@ export class Game {
   }
 
   private configureShadowsForCourse(): void {
-    const b = this.generatedLevel.bounds;
-    const pad = 18;
-    const halfW = (b.maxX - b.minX) / 2 + pad;
-    const halfH = (b.maxZ - b.minZ) / 2 + pad;
-    /** Square ortho frustum so angled sun doesn’t clip diagonal fairways */
-    const ext = Math.max(28, halfW, halfH);
-    const cx = (b.minX + b.maxX) / 2;
-    const cz = (b.minZ + b.maxZ) / 2;
-    const oc = this.keyLight.shadow.camera as THREE.OrthographicCamera;
-    oc.left = -ext;
-    oc.right = ext;
-    oc.top = ext;
-    oc.bottom = -ext;
-    oc.updateProjectionMatrix();
-    this.keyLight.target.position.set(cx, 0, cz);
-    this.keyLight.target.updateMatrixWorld();
-
-    this.courseGroup.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      m.receiveShadow = true;
-      const mat = m.material;
-      const mats = Array.isArray(mat) ? mat : [mat];
-      const transparent = mats.some(
-        (x) => (x as THREE.Material).transparent === true,
-      );
-      m.castShadow = !transparent;
-    });
+    configureCourseShadows(
+      this.courseGroup,
+      this.keyLight,
+      this.generatedLevel.bounds,
+    );
   }
 
   private disposeLevelBackdrop(): void {
@@ -1095,9 +1009,13 @@ export class Game {
       }
 
       let hazardHit = false;
+      let mushroomBump = false;
       for (const hz of this.hazardInstances) {
         if (hz.resolveImpulses(hzCtx, this.physics, deltaSeconds)) {
           hazardHit = true;
+          if (hz.hazardType === "bumper_mushroom") {
+            mushroomBump = true;
+          }
         }
       }
       const surfaceBump = this.physics.consumeSurfaceContact();
@@ -1112,6 +1030,12 @@ export class Game {
         this.flashHazardHit();
         this.shotEffects.onHazardHit();
         this.audio.playNamed("hazard");
+      }
+      if (mushroomBump) {
+        const tipTier = recordMushroomBumperHit();
+        if (tipTier !== null) {
+          this.overlays.showYipMushroomTip(tipTier);
+        }
       }
 
       const coinHits = this.collectibles.collectNear(

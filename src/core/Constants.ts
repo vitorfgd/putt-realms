@@ -79,7 +79,7 @@ export function readProcgenLayoutUrlOverride(): ProcgenLayoutMode | null {
   return null;
 }
 
-/** When true, levels come from the procedural map endpoint + adapter; otherwise legacy LevelGenerator. */
+/** When `true` (default shipped build), `PlayableLevelService` uses procgen endpoint + adapter. Set `false` to use {@link LevelGenerator} only (QA / bisect). */
 export const USE_PROCGEN_ENDPOINT = true;
 
 /** Ball */
@@ -128,7 +128,7 @@ export const WALL_RESTITUTION = 0.82;
 /** Downward acceleration (world Y-up) */
 export const GRAVITY = 38;
 /** Upward kick vs planar shot speed — higher = more lift off the deck on strike */
-export const SHOT_LOB_RATIO = 0.12;
+export const SHOT_LOB_RATIO = 0.24;
 /** After landing on grass, damp vertical bounce — 0 = no post-landing hop */
 export const GROUND_RESTITUTION_Y = 0;
 /** Out-of-bounds when ball falls this far below the deck */

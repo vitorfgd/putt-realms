@@ -123,9 +123,11 @@ function computeFairwayFlybyPose(
   const gz = sz + fz * along + panXZ.y;
   const gy = sy + (hy - sy) * (along / fairwayLen);
 
-  /** Stay close to the turf — small intro lift only */
+  /** Low fairway flyby with a mid-flight crest so the shot preview reads like a lofted stroke */
+  const arcEase = Math.sin(Math.PI * ease);
+  const arcPeak = arcEase * Math.min(6.2, 0.055 * fairwayLen);
   const lift =
-    6.8 * zoom + (1 - smoothstep(0, 0.22, t)) * 3.4;
+    7.6 * zoom + (1 - smoothstep(0, 0.22, t)) * 4.4 + arcPeak;
 
   outPos.set(gx + px * side, gy + lift, gz + pz * side);
 
@@ -136,7 +138,10 @@ function computeFairwayFlybyPose(
   const tx = midFx + (hx - midFx) * aimHole;
   const tz = midFz + (hz - midFz) * aimHole;
   const ty =
-    midY + (hy - midY) * aimHole + Ball.RADIUS * 0.55;
+    midY +
+    (hy - midY) * aimHole +
+    Ball.RADIUS * 0.55 +
+    arcEase * 1.45;
   outTarget.set(tx, ty, tz);
 }
 

@@ -12,10 +12,10 @@ import {
 } from "../../art/Materials";
 import { createLowPolyCylinder, snapVertexJitter } from "../../art/PsxStyle";
 import {
-  scaleProcgenModelToWorldUnits,
+  alignProcgenModelGrassBaseToDeckOrigin,
+  resetProcgenAssetInstanceRoot,
+  scaleProcgenModelGrassBaseToWorldUnits,
   snapRampExitFloorToHeight,
-  centerModelOnDeckOrigin,
-  procgenModelExtentForAssetKey,
 } from "../../procgen/procgenModelScale";
 import { RAMP_HEIGHT } from "../../procgen/TileCatalog";
 import type { PlacedTile } from "../LevelTypes";
@@ -87,15 +87,13 @@ function tryAttachTileModel(parent: THREE.Object3D, tile: PlacedTile): boolean {
   if (tile.assetKeyOverride) {
     const node = assetRegistry.getModelClone(tile.assetKeyOverride);
     if (node) {
+      resetProcgenAssetInstanceRoot(node);
       // Scale to the full tile footprint (TILE_LENGTH = 6 world units), ignoring
       // wall height so tall walls never shrink the ground footprint below 4×6.
-      scaleProcgenModelToWorldUnits(
-        node,
-        procgenModelExtentForAssetKey(tile.assetKeyOverride),
-        true,
-      );
-      // Centre XZ on deck origin + snap bottom to y=0.
-      centerModelOnDeckOrigin(node, 0);
+      scaleProcgenModelGrassBaseToWorldUnits(node);
+      // The FBX grass base is 200 x 200; walls are outside it.
+      // Align by the grass base so exterior wall thickness never changes tile spacing.
+      alignProcgenModelGrassBaseToDeckOrigin(node, 0);
       // For ramp assets: translate in Y so the exit-floor (measured via vertex sampling
       // at the high-Z end) is exactly RAMP_HEIGHT — closes the vertical seam between the
       // ramp exit and the next flat/elevated tile without deforming the geometry.

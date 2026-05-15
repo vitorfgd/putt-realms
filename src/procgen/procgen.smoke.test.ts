@@ -369,6 +369,24 @@ describe("procgen pipeline", () => {
     expect(specA!.portalSpawnWorldX!).toBeCloseTo(midX, 3);
     expect(specA!.portalSpawnWorldZ!).toBeCloseTo(midZ, 3);
   });
+
+  it("canonicalizes yaw at curved turn (1778813885962-390489452 td=6)", () => {
+    const map = mapGenerationEndpoint.generateMap({
+      seed: "1778813885962-390489452",
+      levelIndex: 6,
+      targetDifficulty: 6,
+      maxTiles: 16 + 6 * 5,
+      allowRamps: true,
+      allowCurves: true,
+    });
+    expectMapValid(map);
+    const path = map.debugInfo.gridPath as GridCell[];
+    const i = path.findIndex((c) => c.x === 0 && c.z === 5);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(map.tiles[i]!.tileType).toBe("straight_right_wall");
+    expect(map.tiles[i]!.rotationY).toBeCloseTo(-Math.PI / 2, 4);
+    expect(Math.abs(map.tiles[i]!.rotationY)).toBeLessThanOrEqual(Math.PI + 1e-6);
+  });
 });
 
 describe("legacy LevelGenerator", () => {

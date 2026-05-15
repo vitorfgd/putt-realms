@@ -1,3 +1,7 @@
+/**
+ * Adapter: procgen {@link GeneratedMap} → gameplay {@link GeneratedLevel} (DTO for TileKit, physics, hazards).
+ * Primary pipeline when `USE_PROCGEN_ENDPOINT` is true — not a legacy fallback.
+ */
 import type {
   GeneratedMap,
   PlacedTile as ProcgenTile,
@@ -16,6 +20,7 @@ import {
 } from "./courseSurface";
 import { generateHazardSpecs } from "./generateHazardSpecs";
 import { hazardWeight } from "../hazards/HazardTypes";
+import { injectFtueTutorialMushroom } from "./injectFtueTutorialHazards";
 import type {
   CourseSurface,
   GeneratedLevel,
@@ -460,7 +465,10 @@ export function adaptProcgenMapToGeneratedLevel(
     tiles,
     opts.rng,
   ).filter((spec) => !reservedPortalTiles.has(spec.tileIndex));
-  const hazardSpecs = [...portalSpecs, ...scatterSpecs];
+  let hazardSpecs = [...portalSpecs, ...scatterSpecs];
+  if (map.debugInfo["tutorial"] === true) {
+    hazardSpecs = injectFtueTutorialMushroom(tiles, hazardSpecs);
+  }
   const surface = buildProcgenSurface(map);
 
   const bounds = {

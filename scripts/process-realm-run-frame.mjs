@@ -9,9 +9,10 @@
  *   `npm run process:realm-run-frame`
  */
 import path from "node:path";
-import { unlink, rename, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { writePngAtomic } from "./lib/writePngAtomic.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = path.join(__dirname, "..", "public", "assets", "ui");
@@ -153,15 +154,13 @@ const h = cropInfo.height;
 const edgePx = floodLightFringeFromBorder(rgba, w, h, 0.38);
 console.log(`Edge fringe → transparent: ${edgePx}px`);
 
-const tmpPath = `${outPath}.processing.png`;
-await sharp(rgba, {
-  raw: { width: w, height: h, channels: 4 },
-})
-  .png({ compressionLevel: 9, effort: 10 })
-  .toFile(tmpPath);
-
-await unlink(outPath).catch(() => undefined);
-await rename(tmpPath, outPath);
+await writePngAtomic(outPath, async (tmpPath) => {
+  await sharp(rgba, {
+    raw: { width: w, height: h, channels: 4 },
+  })
+    .png({ compressionLevel: 9, effort: 10 })
+    .toFile(tmpPath);
+});
 
 const meta = await sharp(outPath).metadata();
 console.log(`Wrote ${outPath} (${meta.width}x${meta.height}, alpha=${meta.hasAlpha})`);

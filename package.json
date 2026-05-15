@@ -13,7 +13,8 @@
     "lint": "eslint .",
     "knip": "knip",
     "process:hud-topbar": "node scripts/process-hud-topbar-art.mjs",
-    "process:realm-run-frame": "node scripts/process-realm-run-frame.mjs"
+    "process:realm-run-frame": "node scripts/process-realm-run-frame.mjs",
+    "strip:ui-bg": "python scripts/strip_run_summary_png_bg.py"
   },
   "dependencies": {
     "three": "^0.170.0"

@@ -6,56 +6,69 @@ import {
   woodBrown,
 } from "../../art/Materials";
 
-/** Pastel fairway base: cute, soft, and readable against cream rails. */
+/** Fallback tint before atlas grass map finishes loading */
 export const GRASS_COLOR = 0x98dba8;
 
-let grassMat: THREE.MeshStandardMaterial | null = null;
+const DECK_GRASS_ATLAS_URL = encodeURI("/assets/models/tile tex 256.png");
 
-function createPastelGrassTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement("canvas");
-  canvas.width = 96;
-  canvas.height = 96;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#98dba8";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  for (let y = 0; y < canvas.height; y += 12) {
-    ctx.fillStyle =
-      y % 24 === 0 ? "rgba(255,255,255,0.13)" : "rgba(85,170,108,0.12)";
-    ctx.fillRect(0, y, canvas.width, 6);
-  }
-  for (let i = 0; i < 160; i++) {
-    const x = Math.random() * canvas.width;
-    const y = Math.random() * canvas.height;
-    const h = 2 + Math.random() * 4;
-    ctx.strokeStyle =
-      Math.random() > 0.5
-        ? "rgba(242,255,229,0.35)"
-        : "rgba(78,152,93,0.22)";
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + (Math.random() - 0.5) * 2, y - h);
-    ctx.stroke();
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1.6, 1.6);
-  tex.anisotropy = 4;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+/** Grass checkerboard region in `tile tex 256.png` (atlas is 256×256) */
+const GRASS_ATLAS_CROP = { sx: 0, sy: 0, sw: 182, sh: 182 } as const;
+
+let grassMat: THREE.MeshStandardMaterial | null = null;
+let grassTexLoadStarted = false;
+
+function startDeckGrassTextureLoad(mat: THREE.MeshStandardMaterial): void {
+  if (grassTexLoadStarted) return;
+  grassTexLoadStarted = true;
+  const loader = new THREE.TextureLoader();
+  loader.load(
+    DECK_GRASS_ATLAS_URL,
+    (atlasTex) => {
+      const img = atlasTex.image as HTMLImageElement;
+      const { sx, sy, sw, sh } = GRASS_ATLAS_CROP;
+      const canvas = document.createElement("canvas");
+      canvas.width = sw;
+      canvas.height = sh;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      atlasTex.dispose();
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(1.6, 1.6);
+      tex.anisotropy = 4;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.needsUpdate = true;
+      mat.map = tex;
+      mat.color.setHex(0xffffff);
+      mat.needsUpdate = true;
+    },
+    undefined,
+    () => {
+      grassTexLoadStarted = false;
+    },
+  );
 }
 
 export function grassMaterial(): THREE.MeshStandardMaterial {
   if (!grassMat) {
     grassMat = new THREE.MeshStandardMaterial({
       color: GRASS_COLOR,
-      map: createPastelGrassTexture(),
       roughness: 0.96,
       metalness: 0,
       envMapIntensity: 0.28,
     });
+    startDeckGrassTextureLoad(grassMat);
   }
   return grassMat;
+}
+
+/** Kick off deck grass atlas fetch — call during bootstrap so the map is often ready before play */
+export function preloadDeckGrassTexture(): void {
+  grassMaterial();
 }
 
 export function creamRailMaterial(): ReturnType<typeof warmCreamStone> {

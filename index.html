@@ -141,6 +141,54 @@
           </div>
         </header>
 
+        <div class="hud-leaderboard-entry">
+          <button
+            type="button"
+            class="hud-leaderboard-btn"
+            id="hud-leaderboard-btn"
+            aria-label="Open leaderboard"
+            aria-expanded="false"
+            aria-controls="hud-leaderboard-panel"
+          >
+            <img
+              src="/assets/ui/leaderboard_button.png"
+              alt=""
+              width="900"
+              height="262"
+              decoding="async"
+            />
+          </button>
+        </div>
+
+        <div
+          id="hud-leaderboard-panel"
+          class="hud-leaderboard hud-leaderboard--hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="hud-leaderboard-title"
+        >
+          <div class="hud-leaderboard__shade" id="hud-leaderboard-shade"></div>
+          <section class="hud-leaderboard__card">
+            <div class="hud-leaderboard__head">
+              <div>
+                <span class="hud-leaderboard__eyebrow" id="hud-leaderboard-level"
+                  >Level 1</span
+                >
+                <h2 id="hud-leaderboard-title">Leaderboard</h2>
+              </div>
+              <button
+                type="button"
+                class="hud-leaderboard__close"
+                id="hud-leaderboard-close"
+                aria-label="Close leaderboard"
+              >
+                X
+              </button>
+            </div>
+            <ol class="hud-leaderboard__list" id="hud-leaderboard-list"></ol>
+          </section>
+        </div>
+
         <div
           id="hud-callout"
           class="hud-callout hud-callout--hidden"

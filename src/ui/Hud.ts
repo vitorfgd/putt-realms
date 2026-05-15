@@ -31,8 +31,14 @@ export class Hud {
   private readonly elCallout: HTMLElement;
   private readonly elCalloutImg: HTMLImageElement;
   private readonly elCalloutFallback: HTMLElement;
+  private readonly elLeaderboardBtn: HTMLButtonElement;
+  private readonly elLeaderboardPanel: HTMLElement;
+  private readonly elLeaderboardLevel: HTMLElement;
+  private readonly elLeaderboardList: HTMLOListElement;
+  private readonly elLeaderboardClose: HTMLButtonElement;
+  private readonly elLeaderboardShade: HTMLElement;
   private calloutTimer = 0;
-  private currentPar = 0;
+  private currentLevel = 1;
 
   constructor(container: HTMLElement) {
     this.elLevelValue = requireEl(container, "hud-level-value");
@@ -53,6 +59,12 @@ export class Hud {
     this.elCallout = requireEl(container, "hud-callout");
     this.elCalloutImg = requireEl(container, "hud-callout-img") as HTMLImageElement;
     this.elCalloutFallback = requireEl(container, "hud-callout-fallback");
+    this.elLeaderboardBtn = requireEl(container, "hud-leaderboard-btn") as HTMLButtonElement;
+    this.elLeaderboardPanel = requireEl(container, "hud-leaderboard-panel");
+    this.elLeaderboardLevel = requireEl(container, "hud-leaderboard-level");
+    this.elLeaderboardList = requireEl(container, "hud-leaderboard-list") as HTMLOListElement;
+    this.elLeaderboardClose = requireEl(container, "hud-leaderboard-close") as HTMLButtonElement;
+    this.elLeaderboardShade = requireEl(container, "hud-leaderboard-shade");
   }
 
   mount(): void {
@@ -65,7 +77,19 @@ export class Hud {
     this.setSkipRow({ visible: false, label: "", enabled: false });
     this.hideToast();
     this.hideCallout();
+    this.hideLeaderboard();
     this.setMapSeed(null, null);
+    this.elLeaderboardBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleLeaderboard();
+    });
+    this.elLeaderboardClose.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.hideLeaderboard();
+    });
+    this.elLeaderboardShade.addEventListener("click", () => this.hideLeaderboard());
   }
 
   /**
@@ -128,7 +152,9 @@ export class Hud {
   }
 
   setLevel(level: number): void {
+    this.currentLevel = Math.max(1, Math.round(level));
     this.elLevelValue.textContent = `${level}`;
+    this.renderLeaderboard();
   }
 
   setDifficultyRating(score: number, imperfect?: boolean): void {
@@ -167,14 +193,8 @@ export class Hud {
   }
 
   setStrokesPar(strokes: number, par: number): void {
-    this.currentPar = par;
     this.elStrokesValue.textContent = `${strokes}`;
     this.elParValue.textContent = par > 0 ? `${par}` : "—";
-  }
-
-  /** @deprecated Prefer {@link setStrokesPar} — uses last known par */
-  setStrokes(n: number): void {
-    this.setStrokesPar(n, this.currentPar);
   }
 
   setHint(kind: HudHintKind): void {
@@ -284,6 +304,53 @@ export class Hud {
     this.elCalloutFallback.classList.remove("hud-callout__fallback--hidden");
   }
 
+  private toggleLeaderboard(): void {
+    if (this.elLeaderboardPanel.classList.contains("hud-leaderboard--hidden")) {
+      this.showLeaderboard();
+    } else {
+      this.hideLeaderboard();
+    }
+  }
+
+  private showLeaderboard(): void {
+    this.renderLeaderboard();
+    this.elLeaderboardBtn.setAttribute("aria-expanded", "true");
+    this.elLeaderboardPanel.classList.remove("hud-leaderboard--hidden");
+  }
+
+  private hideLeaderboard(): void {
+    this.elLeaderboardBtn.setAttribute("aria-expanded", "false");
+    this.elLeaderboardPanel.classList.add("hud-leaderboard--hidden");
+  }
+
+  private renderLeaderboard(): void {
+    const level = this.currentLevel;
+    this.elLeaderboardLevel.textContent = `Level ${level}`;
+    const rows = fakeLeaderboardRows(level);
+    this.elLeaderboardList.replaceChildren(
+      ...rows.map((row, index) => {
+        const item = document.createElement("li");
+        item.className = "hud-leaderboard__row";
+        if (row.you) item.classList.add("hud-leaderboard__row--you");
+
+        const rank = document.createElement("span");
+        rank.className = "hud-leaderboard__rank";
+        rank.textContent = `${index + 1}`;
+
+        const name = document.createElement("span");
+        name.className = "hud-leaderboard__name";
+        name.textContent = row.name;
+
+        const score = document.createElement("span");
+        score.className = "hud-leaderboard__score";
+        score.textContent = `${row.strokes}`;
+
+        item.append(rank, name, score);
+        return item;
+      }),
+    );
+  }
+
   private showCallout(
     imageUrl: string,
     fallbackText: string,
@@ -335,4 +402,37 @@ function requireEl(root: HTMLElement, id: string): HTMLElement {
   const el = root.querySelector(`#${id}`);
   if (!el) throw new Error(`HUD missing #${id}`);
   return el as HTMLElement;
+}
+
+function fakeLeaderboardRows(
+  level: number,
+): { name: string; strokes: number; you?: boolean }[] {
+  const names = [
+    "Mira",
+    "Bram",
+    "Vesper",
+    "Jun",
+    "Sol",
+    "Nyx",
+    "Pip",
+    "Ari",
+  ];
+  const basePar = 2 + Math.floor((level % 7) / 2);
+  const rows: { name: string; strokes: number; you?: boolean }[] = names
+    .slice(0, 6)
+    .map((name, index) => {
+      const wobble = (level * (index + 3) + index * 5) % 4;
+      return {
+        name,
+        strokes: Math.max(1, basePar + index + wobble - 1),
+      };
+    });
+  rows.push({
+    name: "You",
+    strokes: Math.max(1, basePar + ((level * 3) % 5)),
+    you: true,
+  });
+  return rows.sort(
+    (a, b) => a.strokes - b.strokes || a.name.localeCompare(b.name),
+  );
 }

@@ -1,6 +1,8 @@
 """
 Trim UI PNGs in `public/assets/ui/`: remove white / flat-gray checkerboard
 margins (alpha), then crop to opaque bbox. Covers run summary + charge meter art.
+
+See `scripts/README.md` (strip:ui-bg). Requires Pillow; not wired into the Sharp pipelines.
 """
 from __future__ import annotations
 

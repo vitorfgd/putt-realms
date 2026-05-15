@@ -5,6 +5,7 @@ import { Game } from "./core/Game";
 import { BACKGROUND_FLOATING_ISLAND_KEYS } from "./level/backgroundFloatingIslands";
 import { ISLAND_DECOR_ASSET_KEYS } from "./level/islandDecorScatter";
 import { PROCGEN_PRELOAD_KEYS } from "./procgen/procgenAssetKeys";
+import { preloadDeckGrassTexture } from "./level/tiles/tileMaterials";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 const hud = document.querySelector<HTMLElement>("#hud");
@@ -32,6 +33,7 @@ if (procgenDebug) {
 
   async function bootstrap(): Promise<void> {
     assetRegistry.startBackgroundPreload();
+    preloadDeckGrassTexture();
     await assetRegistry.preloadAsset("hole_flag");
     await assetRegistry.preloadAsset("undermap_island");
     await Promise.all(

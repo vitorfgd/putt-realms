@@ -7,10 +7,11 @@
  *
  * Usage: `npm run process:hud-topbar` (requires devDependency `sharp`).
  */
-import { mkdir, stat, rename, unlink } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { writePngAtomic } from "./lib/writePngAtomic.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = path.join(__dirname, "..", "public", "assets", "ui");
@@ -154,16 +155,14 @@ async function matteBorderAndTrim(absPath) {
   }
 
   const px = floodBorderMatteToTransparent(data, width, height, rules);
-  const tmp = `${absPath}.processing.png`;
-  await sharp(px, {
-    raw: { width, height, channels: 4 },
-  })
-    .png({ compressionLevel: 9 })
-    .trim({ threshold: 1 })
-    .toFile(tmp);
-
-  await unlink(absPath).catch(() => undefined);
-  await rename(tmp, absPath);
+  await writePngAtomic(absPath, async (tmp) => {
+    await sharp(px, {
+      raw: { width, height, channels: 4 },
+    })
+      .png({ compressionLevel: 9 })
+      .trim({ threshold: 1 })
+      .toFile(tmp);
+  });
 
   const meta = await sharp(absPath).metadata();
   console.log(`OK ${fileName} → ${meta.width}×${meta.height}`);

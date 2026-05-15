@@ -28,8 +28,14 @@ Useful files there include `Best Practices.md`, `TypeScript in MHE2.md`, and the
 | [SKILLS_STUBS.md](./SKILLS_STUBS.md) | Future `Assistant/skills/`-style tasks (stubs only) |
 | [SNACKABLE_ALIGNMENT.md](./SNACKABLE_ALIGNMENT.md) | Checklist vs snackable / AI template expectations |
 
+## Current audit and risk register
+
+- [`../AUDIT_2026-05-15.md`](../AUDIT_2026-05-15.md) — current project audit: legacy code, bugs, simplification opportunities, test gaps, and MHS red flags.
+- [`../THREE_INVENTORY.md`](../THREE_INVENTORY.md) — Three.js-exclusive usage grouped by render, asset loading, physics leakage, input, debug tooling, and MHS replacement direction.
+
 ## Related repo docs
 
+- [`../AUDIT_2026-05-15.md`](../AUDIT_2026-05-15.md) — latest full audit and MHS risk register
 - [`../PROCGEN.md`](../PROCGEN.md) — procedural map generation, sockets, validation, adapter
 - [`../PROCGEN_DEBUG.md`](../PROCGEN_DEBUG.md) — procgen **debug viewer** (URLs, toolbar, visual passes)
 - [`../HANDOFF_MESSAGE.md`](../HANDOFF_MESSAGE.md) — short onboarding blurb for new developers
