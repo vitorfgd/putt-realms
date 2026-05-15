@@ -239,31 +239,38 @@ export class Hud {
 
   /**
    * Big moment before the summary overlay. Returns hold time in ms before summary should open.
+   * Hole-in-one or clean shot always plays first; par streak (≥2) plays immediately after and
+   * extends the returned delay so the run summary waits for both.
    */
   presentHoleFinishCallout(opts: {
     holeInOne: boolean;
-    streakAfterAward: number;
+    /** Par streak length after this hole (same as summary); 0 if streak broken. */
+    parStreakLevel: number;
   }): number {
-    const durationMs = 840;
-    let imageUrl: string;
-    let fallback: string;
-    if (opts.holeInOne && opts.streakAfterAward >= 2) {
-      const tier = Math.min(5, Math.max(2, opts.streakAfterAward)) as
-        | 2
-        | 3
-        | 4
-        | 5;
-      imageUrl = CALLOUT_SPRITES.streak(tier);
-      fallback = `STREAK x${opts.streakAfterAward}`;
-    } else if (opts.holeInOne) {
-      imageUrl = CALLOUT_SPRITES.holeInOne;
-      fallback = "HOLE IN ONE";
-    } else {
-      imageUrl = CALLOUT_SPRITES.cleanShot;
-      fallback = "CLEAN SHOT";
+    const primaryMs = 840;
+    const streakMs = 840;
+    const { holeInOne, parStreakLevel } = opts;
+    const primaryUrl = holeInOne
+      ? CALLOUT_SPRITES.holeInOne
+      : CALLOUT_SPRITES.cleanShot;
+    const primaryFallback = holeInOne ? "HOLE IN ONE" : "CLEAN SHOT";
+
+    if (parStreakLevel >= 2) {
+      const tier = Math.min(5, Math.max(2, parStreakLevel)) as 2 | 3 | 4 | 5;
+      const streakFallback =
+        parStreakLevel >= 5 ? "STREAK x5+" : `STREAK x${parStreakLevel}`;
+      this.showCallout(primaryUrl, primaryFallback, primaryMs, () => {
+        this.showCallout(
+          CALLOUT_SPRITES.streak(tier),
+          streakFallback,
+          streakMs,
+        );
+      });
+      return primaryMs + streakMs;
     }
-    this.showCallout(imageUrl, fallback, durationMs);
-    return durationMs;
+
+    this.showCallout(primaryUrl, primaryFallback, primaryMs);
+    return primaryMs;
   }
 
   showOutOfBounds(): void {
@@ -364,6 +371,9 @@ export class Hud {
     imageUrl: string,
     fallbackText: string,
     durationMs: number,
+    onEnd: () => void = () => {
+      this.hideCallout();
+    },
   ): void {
     window.clearTimeout(this.calloutTimer);
     this.elCalloutFallback.textContent = fallbackText;
@@ -387,9 +397,7 @@ export class Hud {
     this.elCallout.classList.remove("hud-callout--hidden");
     this.elCalloutImg.src = imageUrl;
 
-    this.calloutTimer = window.setTimeout(() => {
-      this.hideCallout();
-    }, durationMs);
+    this.calloutTimer = window.setTimeout(onEnd, durationMs);
   }
 
   private clearToastModifiers(): void {

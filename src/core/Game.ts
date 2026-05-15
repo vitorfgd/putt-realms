@@ -1266,12 +1266,10 @@ export class Game {
           });
 
           let payout = 0;
-          let streakAfterAward = 0;
           if (hio) {
             payout = this.economy.awardHoleInOne(
               this.generatedLevel.difficultyScore,
             );
-            streakAfterAward = this.economy.getHoleInOneStreak();
           } else {
             this.economy.recordNonHoleInOneCompletion();
           }
@@ -1298,7 +1296,7 @@ export class Game {
           window.clearTimeout(this.holeSummaryTimer);
           const calloutMs = this.hud.presentHoleFinishCallout({
             holeInOne: hio,
-            streakAfterAward,
+            parStreakLevel,
           });
           if (hio) {
             this.audio.playNamed("holeInOne");
@@ -1316,7 +1314,6 @@ export class Game {
                 this.generatedLevel.progressionSummary?.realmName ??
                 "Putt Realm",
               unlockedCosmetic,
-              questProgress: this.quests.getProgress(),
             };
             if (hio) {
               this.overlays.showSummary({

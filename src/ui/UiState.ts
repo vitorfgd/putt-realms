@@ -1,5 +1,4 @@
 import type { ProcgenEndpointReplayPayload } from "../procgen/MapGenerationTypes";
-import type { QuestProgress } from "../progression/QuestService";
 import type { HudHintKind } from "./Hud";
 
 export interface HudState {
@@ -33,7 +32,6 @@ export interface OverlayState {
     parStreakLevel: number;
     realmName: string;
     unlockedCosmetic?: string;
-    questProgress: QuestProgress;
   } | null;
 }
 

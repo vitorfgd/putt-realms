@@ -44,7 +44,7 @@ describe("web UI DOM contract", () => {
     }
     expect(indexHtml).toContain('aria-controls="hud-leaderboard-panel"');
     expect(indexHtml).toContain('aria-expanded="false"');
-    expect(indexHtml).toContain('aria-labelledby="hud-leaderboard-title"');
+    expect(indexHtml).toContain('aria-label="Leaderboard"');
   });
 
   it("keeps overlay string interpolation guarded by escaping", () => {

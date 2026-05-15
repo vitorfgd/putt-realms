@@ -2,7 +2,6 @@ import type { GeneratedLevel } from "../level/LevelTypes";
 import type { AudioSettings } from "../platform-browser/GameAudio";
 import type { StorageService } from "../platform/PlatformServices";
 import { browserStorage } from "../platform-browser/BrowserStorageService";
-import type { QuestProgress } from "../progression/QuestService";
 import type { MushroomTipTier } from "../progression/ftueState";
 import type { FtueIntroLine } from "./ftueScript";
 import { YIP_MUSHROOM_TIP } from "./ftueScript";
@@ -23,7 +22,6 @@ export interface LevelSummaryView {
   parStreakLevel: number;
   realmName: string;
   unlockedCosmetic?: string;
-  questProgress: QuestProgress;
 }
 
 export class GameOverlays {
@@ -202,7 +200,6 @@ export class GameOverlays {
     const hioReward = Math.max(0, Math.floor(summary.rewardCoins));
     const streak = Math.max(0, Math.floor(summary.parStreakCoinPayout));
     const coinsTotal = field + hioReward + streak;
-    const qp = summary.questProgress;
     const streakLevel = Math.max(0, Math.floor(summary.parStreakLevel));
     const hioRow =
       hioReward > 0
@@ -241,16 +238,6 @@ export class GameOverlays {
                 ? `<p class="run-summary__unlock">Unlocked: ${escapeHtml(summary.unlockedCosmetic)}</p>`
                 : ""
             }
-            <p class="run-summary__quests">
-              <span class="run-summary__quests-row">
-                <span class="run-summary__quests-label">Under par</span>
-                <span class="run-summary__quests-val">${qp.underParCompletions}/3</span>
-              </span>
-              <span class="run-summary__quests-row">
-                <span class="run-summary__quests-label">Run coins</span>
-                <span class="run-summary__quests-val">${qp.collectedCoins}/10</span>
-              </span>
-            </p>
           </div>
           <p class="run-summary__shop-toast run-summary__shop-toast--hidden" role="status" aria-live="polite">
             Shop — coming soon
