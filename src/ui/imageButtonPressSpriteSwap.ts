@@ -3,11 +3,11 @@
  * (pointer down / up / leave / cancel / blur).
  */
 export function bindImageButtonPressSpriteSwap(
-  button: HTMLElement | null,
+  button: Element | null,
   normalSrc: string,
   pressedSrc: string,
 ): void {
-  if (!button) return;
+  if (!(button instanceof HTMLElement)) return;
   const img = button.querySelector("img");
   if (!(img instanceof HTMLImageElement)) return;
   img.src = normalSrc;
