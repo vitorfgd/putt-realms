@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import type { Vec2Like } from "../core/math";
+import type { ShotIntent } from "./ShotIntent";
 
 export interface DragShotContext {
   /** When omitted, treated as always true */
@@ -21,7 +23,7 @@ export interface DragShotContext {
   getBallWorld(): THREE.Vector3;
   /** Whether a new drag may start (ball idle, run phase, etc.) */
   canBeginShot(): boolean;
-  onShot(shotDirectionXZ: THREE.Vector2, power01: number): void;
+  onShot(intent: ShotIntent): void;
   onDragCancel(): void;
   /** Fires when a drag starts (AwaitingShot → Aiming). */
   onAimBegin?: () => void;
@@ -70,21 +72,20 @@ export class DragShotInput {
 
   /** Live preview for HUD / aim line (null when not dragging). */
   getShotPreview(): {
-    shotDirXZ: THREE.Vector2;
+    shotDirXZ: Vec2Like;
     pullLength: number;
     power01: number;
   } | null {
     if (!this.dragging) return null;
-    const pullXZ = new THREE.Vector2(this.pull.x, this.pull.z);
-    const len = pullXZ.length();
+    const len = Math.hypot(this.pull.x, this.pull.z);
     if (len < 1e-6) {
       return {
-        shotDirXZ: new THREE.Vector2(1, 0),
+        shotDirXZ: { x: 1, y: 0 },
         pullLength: 0,
         power01: 0,
       };
     }
-    const shotDir = pullXZ.clone().multiplyScalar(-1 / len);
+    const shotDir = { x: -this.pull.x / len, y: -this.pull.z / len };
     const powerNorm =
       this.ctx.powerFullDragWorld ?? this.ctx.maxDragWorld;
     const power01 = Math.min(1, len / powerNorm);
@@ -174,13 +175,18 @@ export class DragShotInput {
     }
 
     const capped = Math.min(len, this.ctx.maxDragWorld);
-    const shotDir = new THREE.Vector2(-this.pull.x, -this.pull.z);
-    shotDir.normalize();
+    const shotDir = { x: -this.pull.x / len, y: -this.pull.z / len };
     const powerNorm =
       this.ctx.powerFullDragWorld ?? this.ctx.maxDragWorld;
     const power01 = Math.min(1, capped / powerNorm);
 
-    this.ctx.onShot(shotDir, power01);
+    const ball = this.ctx.getBallWorld();
+    this.ctx.onShot({
+      directionXZ: shotDir,
+      power01,
+      startWorld: { x: ball.x, y: ball.y, z: ball.z },
+      source: "pointer",
+    });
   };
 
   private readonly onPointerCancel = (e: PointerEvent): void => {

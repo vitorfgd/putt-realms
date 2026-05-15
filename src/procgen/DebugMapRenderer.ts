@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { Vec3Like } from "../core/math";
 import type { HazardSpawnSpec } from "../level/LevelTypes";
 import {
   deckCenterWorldFromPivot,
@@ -202,7 +203,7 @@ function createTextSprite(text: string, color: string): THREE.Sprite {
 
 function createEndpointMarker(
   label: string,
-  pos: THREE.Vector3,
+  pos: Vec3Like,
   color: number,
   textColor: string,
 ): THREE.Group {

@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import { MutableVec3 } from "../core/math";
 import type { GridCell } from "../level/pathGen";
 import {
   generateSinglePath,
@@ -89,8 +89,8 @@ function deckCenterForCell(
   cell: GridCell,
   cx: number,
   cz: number,
-  target: THREE.Vector3,
-): THREE.Vector3 {
+  target: MutableVec3,
+): MutableVec3 {
   return target.set(
     (cell.x - cx) * TILE_LENGTH,
     0,
@@ -134,16 +134,16 @@ function pushDoubleRowTile(
   params: {
     id: string;
     tileType: TileType;
-    deck: THREE.Vector3;
+    deck: MutableVec3;
     rotationY: number;
     railS?: { sx: 1 | -1; sz: 1 | -1 };
     stationIndex?: number;
   },
 ): void {
   const def = getTileDefinition(params.tileType);
-  const pivotScratch = new THREE.Vector3();
+  const pivotScratch = new MutableVec3();
   rotateFlatOffset(def.pivotOffsetFromDeckOrigin, params.rotationY, pivotScratch);
-  const pivotWorld = new THREE.Vector3().addVectors(params.deck, pivotScratch);
+  const pivotWorld = new MutableVec3().addVectors(params.deck, pivotScratch);
   tiles.push({
     id: params.id,
     tileType: params.tileType,
@@ -541,7 +541,7 @@ function solveDoubleRowCurvedPath(
   const tiles: PlacedTile[] = [];
   const path: GridCell[] = [];
   let sumWeights = 0;
-  const deckScratch = new THREE.Vector3();
+  const deckScratch = new MutableVec3();
 
   for (const cell of occupied.values()) {
     let sides = exposedSides(cell, occupiedKeys);
@@ -1033,8 +1033,8 @@ export function solveDoubleRowStraightPath(
   const tiles: PlacedTile[] = [];
   let sumWeights = 0;
 
-  const pivotScratch = new THREE.Vector3();
-  const deckScratch = new THREE.Vector3();
+  const pivotScratch = new MutableVec3();
+  const deckScratch = new MutableVec3();
 
   /*
    * Pivot geometry (top-left artist convention, TILE_WIDTH=4, TILE_LENGTH=6):
@@ -1100,7 +1100,7 @@ export function solveDoubleRowStraightPath(
     // correctly recovers the elevated deck centre downstream).
     deckScratch.set(xDeck, elev, zWorldBase);
     rotateFlatOffset(def.pivotOffsetFromDeckOrigin, rotationY, pivotScratch);
-    const pivotWorld = new THREE.Vector3().addVectors(deckScratch, pivotScratch);
+    const pivotWorld = new MutableVec3().addVectors(deckScratch, pivotScratch);
 
     if (z !== 0 && z !== cellCountZ - 1) {
       sumWeights += def.difficultyWeight;
@@ -1141,8 +1141,8 @@ export function solveTilesAlongPath(
   const tiles: PlacedTile[] = [];
   let sumWeights = 0;
 
-  const pivotScratch = new THREE.Vector3();
-  const deckScratch = new THREE.Vector3();
+  const pivotScratch = new MutableVec3();
+  const deckScratch = new MutableVec3();
 
   // Running elevation — incremented after each ramp tile so subsequent tiles sit higher.
   let currentElevation = 0;
@@ -1191,7 +1191,7 @@ export function solveTilesAlongPath(
     // Bake current elevation into deck Y so downstream placement is correct.
     deckScratch.y = currentElevation;
     rotateFlatOffset(def.pivotOffsetFromDeckOrigin, rotationY, pivotScratch);
-    const pivotWorld = new THREE.Vector3().addVectors(deckScratch, pivotScratch);
+    const pivotWorld = new MutableVec3().addVectors(deckScratch, pivotScratch);
 
     if (i !== 0 && i !== path.length - 1) {
       sumWeights += def.difficultyWeight;

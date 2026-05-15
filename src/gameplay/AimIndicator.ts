@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { Vec2Like } from "../core/math";
 import {
   BALL_RADIUS,
   GRAVITY,
@@ -44,7 +45,7 @@ export class AimIndicator extends THREE.Group {
    * `power01` drives the same speed curve as the real shot.
    */
   show(
-    shotDirXZ: THREE.Vector2,
+    shotDirXZ: Vec2Like,
     pullLengthWorld: number,
     power01: number,
   ): void {
@@ -54,9 +55,10 @@ export class AimIndicator extends THREE.Group {
       return;
     }
 
-    const dir = shotDirXZ.clone();
-    if (dir.lengthSq() < 1e-10) dir.set(1, 0);
-    dir.normalize();
+    const dirLen = Math.hypot(shotDirXZ.x, shotDirXZ.y);
+    const dir = dirLen < 1e-10
+      ? { x: 1, y: 0 }
+      : { x: shotDirXZ.x / dirLen, y: shotDirXZ.y / dirLen };
 
     const speed = shotSpeedFromPower01(power01);
     const vx = dir.x * speed;

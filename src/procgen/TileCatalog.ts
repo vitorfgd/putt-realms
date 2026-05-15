@@ -1,4 +1,7 @@
-import * as THREE from "three";
+import {
+  rotateFlatOffset as rotateFlatOffsetPlain,
+  type Vec3Like,
+} from "../core/math";
 import type { Footprint, TileType } from "./MapGenerationTypes";
 import { SocketDirection } from "./MapGenerationTypes";
 
@@ -40,7 +43,7 @@ export interface TileDefinition {
    *
    * If meshes are re-exported with a different pivot, adjust only these offsets — gameplay stays anchor-based.
    */
-  pivotOffsetFromDeckOrigin: THREE.Vector3;
+  pivotOffsetFromDeckOrigin: Vec3Like;
   /**
    * Y change (world units) from this tile's **entry** elevation to its **exit** elevation.
    * 0 for all flat tiles; +{@link RAMP_HEIGHT} for ramp-up tiles.
@@ -69,11 +72,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.PosZ,
     // Top-left corner: model extends +X (wall right) and −Z (backward) from this offset.
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      -TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: -TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     exitElevationDelta: 0,
     difficultyWeight: 1,
     tags: ["straight", "right_wall"],
@@ -84,11 +83,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.PosX,
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      -TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: -TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     exitElevationDelta: 0,
     difficultyWeight: 1.5,
     tags: ["curve", "convex", "right_wall"],
@@ -99,11 +94,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.NegX,
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      -TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: -TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     exitElevationDelta: 0,
     difficultyWeight: 1.5,
     tags: ["curve", "concave", "right_wall"],
@@ -114,11 +105,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.PosZ,
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      -TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: -TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     // Ramp rises RAMP_HEIGHT from entry (low end / pivot) to exit (high end).
     exitElevationDelta: RAMP_HEIGHT,
     difficultyWeight: 2,
@@ -130,11 +117,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.PosZ,
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     // Mirror of ramp_right_wall: same elevation change, wall on −X side.
     exitElevationDelta: RAMP_HEIGHT,
     difficultyWeight: 2,
@@ -146,11 +129,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.PosZ,
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      -TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: -TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     exitElevationDelta: 0,
     difficultyWeight: 0.5,
     tags: ["floor", "plain"],
@@ -161,11 +140,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.PosZ,
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      -TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: -TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     exitElevationDelta: 0,
     difficultyWeight: 1,
     tags: ["start"],
@@ -176,11 +151,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.PosZ,
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      -TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: -TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     exitElevationDelta: 0,
     difficultyWeight: 1,
     tags: ["hole"],
@@ -191,11 +162,7 @@ export const TILE_CATALOG: Record<TileType, TileDefinition> = {
     footprint: { halfWidth: TILE_WIDTH / 2, halfLength: TILE_LENGTH / 2 },
     entrySocket: SocketDirection.NegZ,
     exitSocket: SocketDirection.PosZ,
-    pivotOffsetFromDeckOrigin: new THREE.Vector3(
-      -TILE_WIDTH / 2,
-      0,
-      TILE_LENGTH / 2,
-    ),
+    pivotOffsetFromDeckOrigin: { x: -TILE_WIDTH / 2, y: 0, z: TILE_LENGTH / 2 },
     exitElevationDelta: 0,
     difficultyWeight: 1,
     tags: ["dead_end", "portal"],
@@ -207,30 +174,67 @@ export function getTileDefinition(type: TileType): TileDefinition {
 }
 
 /** Rotate an xz offset by yaw (Three.js Y rotation). */
-export function rotateFlatOffset(
-  offset: THREE.Vector3,
+type Vec3Target = Vec3Like & {
+  set?: (x: number, y: number, z: number) => unknown;
+};
+
+export function rotateFlatOffset<T extends Vec3Target>(
+  offset: Vec3Like,
   rotationY: number,
-  target = new THREE.Vector3(),
-): THREE.Vector3 {
-  const c = Math.cos(rotationY);
-  const s = Math.sin(rotationY);
-  target.set(
-    offset.x * c + offset.z * s,
-    offset.y,
-    -offset.x * s + offset.z * c,
-  );
+  target: T,
+): T;
+export function rotateFlatOffset(
+  offset: Vec3Like,
+  rotationY: number,
+): Vec3Like;
+export function rotateFlatOffset(
+  offset: Vec3Like,
+  rotationY: number,
+  target?: Vec3Target,
+): Vec3Like {
+  const next = rotateFlatOffsetPlain(offset, rotationY);
+  if (!target) return next;
+  if (target.set) {
+    target.set(next.x, next.y, next.z);
+  } else {
+    target.x = next.x;
+    target.y = next.y;
+    target.z = next.z;
+  }
   return target;
 }
 
 /** deck_world + rotate(offset) === pivot_world */
 export function deckCenterWorldFromPivot(
-  pivot: THREE.Vector3,
+  pivot: Vec3Like,
   rotationY: number,
   def: TileDefinition,
-  out = new THREE.Vector3(),
-): THREE.Vector3 {
-  rotateFlatOffset(def.pivotOffsetFromDeckOrigin, rotationY, out);
-  out.multiplyScalar(-1);
-  out.add(pivot);
+): Vec3Like;
+export function deckCenterWorldFromPivot<T extends Vec3Target>(
+  pivot: Vec3Like,
+  rotationY: number,
+  def: TileDefinition,
+  out: T,
+): T;
+export function deckCenterWorldFromPivot(
+  pivot: Vec3Like,
+  rotationY: number,
+  def: TileDefinition,
+  out?: Vec3Target,
+): Vec3Like {
+  const offset = rotateFlatOffsetPlain(def.pivotOffsetFromDeckOrigin, rotationY);
+  const next = {
+    x: pivot.x - offset.x,
+    y: pivot.y - offset.y,
+    z: pivot.z - offset.z,
+  };
+  if (!out) return next;
+  if (out.set) {
+    out.set(next.x, next.y, next.z);
+  } else {
+    out.x = next.x;
+    out.y = next.y;
+    out.z = next.z;
+  }
   return out;
 }

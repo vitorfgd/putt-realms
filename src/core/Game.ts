@@ -54,9 +54,9 @@ import { configureCourseShadows } from "./configureCourseShadows";
 import {
   RunEvent,
   RunPhase,
-  RunStateMachine,
 } from "./RunStateMachine";
-import { GameAudio } from "../platform-browser/GameAudio";
+import { HoleSession, type HoleSessionCommand } from "./HoleSession";
+import { createBrowserPlatformServices } from "../platform-browser/BrowserPlatformServices";
 import { GameCameraController } from "./GameCameraController";
 import { PsxLowResPresenter } from "./PsxLowResPresenter";
 import { PlayableLevelService } from "./PlayableLevelService";
@@ -96,7 +96,8 @@ export class Game {
   private readonly courseGroup = new THREE.Group();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
-  private readonly run = new RunStateMachine();
+  private readonly platform = createBrowserPlatformServices();
+  private readonly run = new HoleSession();
   private readonly input: DragShotInput;
   private readonly cameraOrbit: CameraOrbitInput;
   private readonly hud: Hud;
@@ -104,12 +105,12 @@ export class Game {
   private readonly aimIndicator: AimIndicator;
   private physics!: SimpleBallPhysics;
   private readonly strokeController = new StrokeController();
-  private readonly economy = new EconomyService();
-  private readonly cosmetics = new CosmeticService();
+  private readonly economy = new EconomyService(this.platform.storage);
+  private readonly cosmetics = new CosmeticService(this.platform.storage);
   private readonly levelService = new PlayableLevelService();
   private readonly levelBuilder = new LevelBuilder();
-  private readonly telemetry = new TelemetryService();
-  private readonly quests = new QuestService();
+  private readonly telemetry = new TelemetryService(this.platform.storage);
+  private readonly quests = new QuestService(this.platform.storage);
   private readonly collectibles = new CollectibleController();
   private readonly cameraController: GameCameraController;
   private readonly overlays: GameOverlays;
@@ -152,7 +153,7 @@ export class Game {
   private courseDeckTopY = 0;
   /** True after slow-roll “bad lie” timer triggers free skip for this hole */
   private freeSkipFromStuck = false;
-  private readonly audio = new GameAudio();
+  private readonly audio = this.platform.audio;
   private shotEffects!: ShotEffects;
   private voidLayer: FantasyVoidLayer | null = null;
   private undermapIslands: THREE.Group | null = null;
@@ -192,7 +193,7 @@ export class Game {
   ) {
     this.camera = new THREE.PerspectiveCamera(48, GAMEPLAY_ASPECT, 0.1, 1200);
     this.cameraController = new GameCameraController(this.camera);
-    this.overlays = new GameOverlays(overlayRoot);
+    this.overlays = new GameOverlays(overlayRoot, this.platform.storage);
     this.scene.add(this.courseGroup);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -313,21 +314,13 @@ export class Game {
         this.audio.playNamed("ui");
       }
       if (phase === RunPhase.ResolvingOOB) {
-        this.holeStats.oobCount++;
         this.oobTimer = OOB_MESSAGE_DURATION;
-        this.offCourseLostSeconds = 0;
-        this.hud.showOutOfBounds();
-        this.audio.playNamed("oob");
-        this.shotEffects.onOob();
-        this.physics.settleHard();
-        this.ball.position.copy(this.lastStoppedLie);
-        this.ball.resetVisual();
       }
     });
 
-    this.run.dispatch(RunEvent.SkipBootToLevelSpawn);
+    this.dispatchRunEvent(RunEvent.SkipBootToLevelSpawn);
     this.loadLevel(START_LEVEL_INDEX, true);
-    this.run.dispatch(RunEvent.LevelSpawned);
+    this.dispatchRunEvent(RunEvent.LevelSpawned);
 
     const dragCtx: DragShotContext = {
       camera: this.camera,
@@ -343,19 +336,21 @@ export class Game {
       canBeginShot: () =>
         this.physics.isSettled() && this.run.canStartDrag(),
       onAimBegin: () => {
-        this.run.dispatch(RunEvent.AimStarted);
+        this.dispatchRunEvent(RunEvent.AimStarted);
       },
-      onShot: (shotDirectionXZ, power01) => {
-        this.audio.playHit();
+      onShot: (intent) => {
+        const { directionXZ: shotDirectionXZ, power01 } = intent;
         this.shotEffects.onShot(power01, shotDirectionXZ);
         this.cameraController.kick(power01);
         this.lastShotPosition.copy(this.ball.position);
-        this.run.dispatch(RunEvent.ShotReleased);
+        this.dispatchRunEvent(RunEvent.ShotReleased);
         this.strokeController.recordStroke();
+        this.run.record({ type: "stroke" });
+        this.applyHoleSessionCommands();
         this.physics.applyShot(shotDirectionXZ, shotSpeedFromPower01(power01));
       },
       onDragCancel: () => {
-        this.run.dispatch(RunEvent.AimCancelled);
+        this.dispatchRunEvent(RunEvent.AimCancelled);
       },
     };
 
@@ -408,6 +403,74 @@ export class Game {
       .catch(() => {
         /* Missing file — sky clear color only */
       });
+  }
+
+  private dispatchRunEvent(event: RunEvent): boolean {
+    const applied = this.run.dispatch(event);
+    this.applyHoleSessionCommands();
+    return applied;
+  }
+
+  private forceRunPhase(phase: RunPhase): void {
+    this.run.forcePhase(phase);
+    this.applyHoleSessionCommands();
+  }
+
+  private applyHoleSessionCommands(): void {
+    for (const command of this.run.drainCommands()) {
+      this.applyHoleSessionCommand(command);
+    }
+  }
+
+  private applyHoleSessionCommand(command: HoleSessionCommand): void {
+    switch (command.type) {
+      case "phaseChanged":
+      case "completeHole":
+      case "setInputEnabled":
+      case "spawnCollectible":
+        break;
+      case "updateHud":
+        this.hud.setStrokesPar(
+          command.snapshot.strokes,
+          this.generatedLevel?.par ?? 0,
+        );
+        this.hud.setCoins(this.economy.getCoins());
+        break;
+      case "playSound":
+        if (command.sound === "hit") this.audio.playHit();
+        else if (command.sound !== "hole") this.audio.playNamed(command.sound);
+        break;
+      case "showOverlay":
+        if (command.overlay === "oob") {
+          this.hud.showOutOfBounds();
+        } else if (command.overlay === "skip") {
+          this.hud.hideToast();
+        }
+        break;
+      case "recoverOob":
+        this.holeStats.oobCount++;
+        this.oobTimer = OOB_MESSAGE_DURATION;
+        this.offCourseLostSeconds = 0;
+        this.shotEffects.onOob();
+        this.physics.settleHard();
+        this.ball.position.copy(this.lastStoppedLie);
+        this.ball.resetVisual();
+        break;
+      case "recordTelemetry": {
+        const result = command.result === "oob" ? "failed" : command.result;
+        this.telemetry.record(this.generatedLevel, this.holeStats, {
+          strokes: command.strokes,
+          turnCount: command.turnCount,
+          result,
+        });
+        break;
+      }
+      case "awardCurrency":
+        if (command.reason === "collectible") {
+          this.economy.addCoins(command.amount);
+        }
+        break;
+    }
   }
 
   private loadLevel(levelIndex: number, isFirst: boolean): void {
@@ -475,6 +538,8 @@ export class Game {
     this.courseGroup.add(this.collectibles.group);
     this.configureShadowsForCourse();
     this.strokeController.resetHole();
+    this.run.resetCounters();
+    this.applyHoleSessionCommands();
 
     const oobMaxZ = this.generatedLevel.bounds.maxZ + OOB_Z_EXTRA;
     if (isFirst) {
@@ -704,8 +769,8 @@ export class Game {
     this.disposeCourse();
     this.currentLevelIndex += 1;
     this.loadLevel(this.currentLevelIndex, false);
-    this.run.dispatch(RunEvent.LevelFinishSequenceComplete);
-    this.run.dispatch(RunEvent.LevelSpawned);
+    this.dispatchRunEvent(RunEvent.LevelFinishSequenceComplete);
+    this.dispatchRunEvent(RunEvent.LevelSpawned);
   }
 
   private restartHole(): void {
@@ -716,15 +781,18 @@ export class Game {
       result: "restarted",
     });
     this.economy.removeCoins(this.holeCollectedCoinValue);
-    this.run.forcePhase(RunPhase.LevelSpawning);
+    this.forceRunPhase(RunPhase.LevelSpawning);
     this.loadLevel(this.currentLevelIndex, false);
-    this.run.dispatch(RunEvent.LevelSpawned);
+    this.dispatchRunEvent(RunEvent.LevelSpawned);
   }
 
   private requestSkipLevel(): void {
-    if (this.strokeController.getStrokes() <= this.generatedLevel.par) return;
-    const phase = this.run.getPhase();
-    if (phase !== RunPhase.AwaitingShot && phase !== RunPhase.BallInFlight) {
+    const strokes = this.strokeController.getStrokes();
+    if (!this.run.canRequestSkip({
+      strokes,
+      par: this.generatedLevel.par,
+      phase: this.run.getPhase(),
+    })) {
       return;
     }
     const diff = this.generatedLevel.difficultyScore;
@@ -733,20 +801,20 @@ export class Game {
       return;
     }
     this.holeStats.skips++;
-    this.telemetry.record(this.generatedLevel, this.holeStats, {
-      strokes: this.strokeController.getStrokes(),
+    this.run.record({
+      type: "skip",
+      strokes,
       turnCount: this.currentTurnCount,
-      result: "skipped",
     });
-    this.audio.playNamed("skip");
+    this.applyHoleSessionCommands();
     this.hud.hideToast();
     this.freeSkipFromStuck = false;
     this.stuckTimer = 0;
     this.disposeCourse();
     this.currentLevelIndex += 1;
-    this.run.forcePhase(RunPhase.LevelSpawning);
+    this.forceRunPhase(RunPhase.LevelSpawning);
     this.loadLevel(this.currentLevelIndex, false);
-    this.run.dispatch(RunEvent.LevelSpawned);
+    this.dispatchRunEvent(RunEvent.LevelSpawned);
   }
 
   private unlockMilestoneCosmetic(): string | undefined {
@@ -945,11 +1013,11 @@ export class Game {
         1 - this.previewTimer / Math.max(0.001, this.cameraController.previewDuration());
       this.cameraController.updatePreview(elapsed01);
       if (this.previewTimer <= 0) {
-        this.run.dispatch(RunEvent.PreviewDurationElapsed);
+        this.dispatchRunEvent(RunEvent.PreviewDurationElapsed);
       }
     } else if (phase === RunPhase.TransitioningCamera) {
       if (this.cameraController.updateTransition(deltaSeconds, this.ball.position)) {
-        this.run.dispatch(RunEvent.GameplayCameraReady);
+        this.dispatchRunEvent(RunEvent.GameplayCameraReady);
       }
     } else if (phase === RunPhase.BallInFlight) {
       if (this.prevPhase !== RunPhase.BallInFlight) {
@@ -1045,9 +1113,9 @@ export class Game {
       for (const hit of coinHits) {
         this.holeStats.coinPickups++;
         this.holeCollectedCoinValue += hit.value;
-        this.economy.addCoins(hit.value);
+        this.run.record({ type: "collectible", id: hit.id, value: hit.value });
         this.shotEffects.onCoinPickup(hit.position);
-        this.audio.playNamed("coin");
+        this.applyHoleSessionCommands();
       }
 
       let bridgeOob = false;
@@ -1103,7 +1171,7 @@ export class Game {
       }
 
       if (portalFinished) {
-        this.run.dispatch(RunEvent.HoleScored);
+        this.dispatchRunEvent(RunEvent.HoleScored);
       } else if (
         !res.oob &&
         !bridgeOob &&
@@ -1111,12 +1179,12 @@ export class Game {
         this.generatedLevel.finishKind !== "portal" &&
         this.tryHoleScore()
       ) {
-        this.run.dispatch(RunEvent.HoleScored);
+        this.dispatchRunEvent(RunEvent.HoleScored);
       } else if (res.oob || bridgeOob || lostOffFairway) {
-        this.run.dispatch(RunEvent.OutOfBounds);
+        this.dispatchRunEvent(RunEvent.OutOfBounds);
       } else if (this.physics.isSettled()) {
         this.lastStoppedLie.copy(this.ball.position);
-        this.run.dispatch(RunEvent.BallSettled);
+        this.dispatchRunEvent(RunEvent.BallSettled);
       }
     } else if (phase === RunPhase.LevelComplete) {
       this.levelCompleteTimer += deltaSeconds;
@@ -1240,7 +1308,7 @@ export class Game {
       if (this.oobTimer <= 0) {
         this.hud.hideToast();
         this.hud.hideCallout();
-        this.run.dispatch(RunEvent.OobMessageComplete);
+        this.dispatchRunEvent(RunEvent.OobMessageComplete);
       }
     }
 

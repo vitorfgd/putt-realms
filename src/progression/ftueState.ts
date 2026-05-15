@@ -1,6 +1,7 @@
 /**
- * First-time Yip tutorial + mushroom encounter tooltips (localStorage).
+ * First-time Yip tutorial + mushroom encounter tooltips.
  */
+import { browserStorage } from "../platform-browser/BrowserStorageService";
 
 const LS_FTUE_INTRO = "pmg_ftue_yip_intro_v1";
 const LS_MUSHROOM_ENC = "pmg_yip_mushroom_encounters_v1";
@@ -8,7 +9,7 @@ const LS_MUSHROOM_TIPS = "pmg_yip_mushroom_tips_shown_v1";
 
 export function isFtueIntroComplete(): boolean {
   try {
-    return localStorage.getItem(LS_FTUE_INTRO) === "1";
+    return browserStorage.read(LS_FTUE_INTRO) === "1";
   } catch {
     return false;
   }
@@ -16,7 +17,7 @@ export function isFtueIntroComplete(): boolean {
 
 export function markFtueIntroComplete(): void {
   try {
-    localStorage.setItem(LS_FTUE_INTRO, "1");
+    browserStorage.write(LS_FTUE_INTRO, "1");
   } catch {
     /* ignore */
   }
@@ -24,7 +25,7 @@ export function markFtueIntroComplete(): void {
 
 export function getMushroomBumperEncounterCount(): number {
   try {
-    const v = parseInt(localStorage.getItem(LS_MUSHROOM_ENC) ?? "0", 10);
+    const v = parseInt(browserStorage.read(LS_MUSHROOM_ENC) ?? "0", 10);
     return Number.isFinite(v) && v >= 0 ? v : 0;
   } catch {
     return 0;
@@ -34,7 +35,7 @@ export function getMushroomBumperEncounterCount(): number {
 function bumpMushroomEncounterCount(): number {
   const n = getMushroomBumperEncounterCount() + 1;
   try {
-    localStorage.setItem(LS_MUSHROOM_ENC, String(n));
+    browserStorage.write(LS_MUSHROOM_ENC, String(n));
   } catch {
     /* ignore */
   }
@@ -43,7 +44,7 @@ function bumpMushroomEncounterCount(): number {
 
 function mushroomTipAlreadyShown(tier: 1 | 3 | 6): boolean {
   try {
-    const raw = localStorage.getItem(LS_MUSHROOM_TIPS) ?? "";
+    const raw = browserStorage.read(LS_MUSHROOM_TIPS) ?? "";
     const set = new Set(raw.split(",").filter(Boolean));
     return set.has(String(tier));
   } catch {
@@ -53,10 +54,10 @@ function mushroomTipAlreadyShown(tier: 1 | 3 | 6): boolean {
 
 function markMushroomTipShown(tier: 1 | 3 | 6): void {
   try {
-    const raw = localStorage.getItem(LS_MUSHROOM_TIPS) ?? "";
+    const raw = browserStorage.read(LS_MUSHROOM_TIPS) ?? "";
     const parts = raw.split(",").filter(Boolean);
     parts.push(String(tier));
-    localStorage.setItem(LS_MUSHROOM_TIPS, [...new Set(parts)].join(","));
+    browserStorage.write(LS_MUSHROOM_TIPS, [...new Set(parts)].join(","));
   } catch {
     /* ignore */
   }

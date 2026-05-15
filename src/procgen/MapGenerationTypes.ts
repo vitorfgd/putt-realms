@@ -1,4 +1,4 @@
-import type { Vector3 } from "three";
+import type { MutableVec3, Vec3Like } from "../core/math";
 
 /**
  * Cardinal sockets in **tile-local** space before `rotationY` is applied.
@@ -23,10 +23,10 @@ export type TileType =
   /** Finish-style cap mesh for portal dead ends — gameplay is straight deck, not a hole. */
   | "dead_end_cap";
 
-/** Plain object compatible with THREE.Box3 `min` / `max`. */
+/** Plain object compatible with bounds calculations and renderer adapters. */
 export interface Box3Like {
-  min: { x: number; y: number; z: number };
-  max: { x: number; y: number; z: number };
+  min: Vec3Like;
+  max: Vec3Like;
 }
 
 /** `double_row_straight` = two parallel lanes (wall out on each side), straights only for now. */
@@ -70,9 +70,9 @@ export interface Footprint {
 export interface PlacedTile {
   id: string;
   tileType: TileType;
-  position: Vector3;
+  position: MutableVec3;
   rotationY: number;
-  anchor: Vector3;
+  anchor: MutableVec3;
   entrySocket: SocketDirection;
   exitSocket: SocketDirection;
   modelKey: string;
@@ -94,8 +94,8 @@ export interface GeneratedMap {
   levelIndex: number;
   difficulty: number;
   tiles: PlacedTile[];
-  startPosition: Vector3;
-  holePosition: Vector3;
+  startPosition: MutableVec3;
+  holePosition: MutableVec3;
   cameraBounds: Box3Like;
   imperfectDifficulty: boolean;
   /** Links between disconnected playable pieces. */

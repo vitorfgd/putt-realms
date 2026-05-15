@@ -8,9 +8,9 @@ See also: [AUDIT_2026-05-15.md](./AUDIT_2026-05-15.md).
 
 ## Summary
 
-- Direct Three.js usage appears across core, art, gameplay, hazards, level building, procgen debug, and some procgen math.
-- Best MHS seam: keep `GeneratedLevel`, `CourseSurface`, `RailCapsule`, `HazardSpawnSpec`, and procgen outputs as data; replace Three scene construction with MHS prefabs/components.
-- Highest-risk leakage: `SimpleBallPhysics`, `DragShotInput`, `TileCatalog`, `TilePlacementSolver`, and procgen helpers use Three vector/box math in logic that otherwise wants to be portable.
+- Direct Three.js usage appears across core, art, gameplay visuals, hazards, level building, procgen debug, and render/editor helpers.
+- Best MHS seam: keep `GeneratedLevelV1`, `CourseSurface`, `RailCapsule`, `HazardSpawnSpec`, `MhsSpawnManifest`, and procgen outputs as data; replace Three scene construction with MHS prefabs/components.
+- Highest-risk remaining leakage: `Game.ts`, `TileKit`, `LevelBuilder`, hazard visual classes, `DragShotInput` internals, runtime model bounds helpers, and decor/undermap render helpers. `SimpleBallPhysics`, `TileCatalog`, `MapGenerationTypes`, `TilePlacementSolver`, and `MapGenerationEndpoint` now use engine-neutral math primitives.
 
 ## Rendering And Scene Ownership
 
@@ -20,6 +20,7 @@ See also: [AUDIT_2026-05-15.md](./AUDIT_2026-05-15.md).
 | `src/core/GameCameraController.ts` / `gameCameraAndLayout.ts` | `Vector3`, camera lerp/lookAt math, object disposal | Keep math intent; rewrite against MHS camera/entity APIs. |
 | `src/core/PsxLowResPresenter.ts` | `WebGLRenderTarget`, blit scene/camera, `ShaderMaterial` | Drop for MVP or rebuild as platform post effect if MHS supports it. |
 | `src/level/LevelBuilder.ts` | Course root `Group`, tile group placement, flag `AnimationMixer` collection | Replace with prefab spawner that consumes `GeneratedLevel`. |
+| `src/mhs/MhsSpawnManifest.ts` | No Three.js dependency | Portable prefab-spawn manifest for MHS consumption. Keep this data-only. |
 | `src/level/fantasyVoid.ts`, `levelBackground.ts`, decor/island modules | Planes, spheres, groups, texture/material setup, camera occlusion traversal | Rebuild as MHS environment/decor prefabs; keep placement data where useful. |
 
 ## Asset Loading And Materials
@@ -45,10 +46,10 @@ See also: [AUDIT_2026-05-15.md](./AUDIT_2026-05-15.md).
 
 | Area | Three.js usage | Risk |
 | --- | --- | --- |
-| `src/gameplay/SimpleBallPhysics.ts` | `Vector2`, `Vector3` for velocity, shot input, and integration | Port-critical. Replace with engine-neutral vector math before MHS port. |
-| `src/input/DragShotInput.ts` | `Raycaster`, `Plane`, `Vector2`, `Vector3` | MHS input must preserve shot vector/dead-zone behavior without Three raycasting. |
-| `src/procgen/TileCatalog.ts` | `Vector3` for pivot offsets and transforms | Convert to plain `{x,y,z}` for data portability. |
-| `src/procgen/TilePlacementSolver.ts` | `Vector3` scratch objects for deck/pivot placement | Convert to plain math helpers; solver should stay engine-neutral. |
+| `src/gameplay/SimpleBallPhysics.ts` | No direct Three.js vector construction after the audit action pass | Keep covered by neutral physics tests before MHS translation. |
+| `src/input/DragShotInput.ts` | `Raycaster`, `Plane`, `Vector2`, `Vector3` internally; outputs neutral `ShotIntent` DTOs | MHS input must preserve shot vector/dead-zone behavior without Three raycasting. |
+| `src/procgen/TileCatalog.ts` | No direct Three.js dependency after the audit action pass | Keep this catalog data-only; callers may still pass Three vectors structurally in the web adapter. |
+| `src/procgen/MapGenerationTypes.ts`, `TilePlacementSolver.ts`, `MapGenerationEndpoint.ts` | No direct Three.js dependency after the audit action pass | Keep these procgen runtime modules engine-neutral. |
 | `src/hazards/hazardSpatialUtils.ts` | `Box3` for model scaling plus vector basis helpers | Separate runtime model bounds from portable hazard math. |
 | `src/procgen/procgenUndermapQuads.ts` | `Box3`, `Vector3`, `MathUtils.lerp` | Move bounding-box work to render/editor layer; keep slot math plain. |
 
@@ -61,8 +62,9 @@ Three.js inventory overlaps with browser-only risks:
 | `src/main.ts`, `src/core/Constants.ts` | DOM query, title screen events, URL query flags | Replace with MHS boot/config/debug settings. |
 | `src/input/*` | Pointer events, wheel/context menu | Replace with MHS pointer/hand/controller input. |
 | `src/ui/Hud.ts`, `GameOverlays.ts` | DOM construction, timers, image tags, `innerHTML`, CSS classes | Replace with MHS UI. Preserve state model and strings only. |
-| `src/platform-browser/GameAudio.ts` | WebAudio and localStorage settings | Replace with MHS audio services and save/profile APIs. |
-| `src/economy`, `src/progression`, `src/cosmetics` | `localStorage` | Replace with platform persistence. |
+| `src/platform-browser/GameAudio.ts` | WebAudio, browser audio elements, synthetic AudioContext cues | Replace with MHS audio services and save/profile APIs; settings already flow through `StorageService`. |
+| `src/platform-browser/BrowserStorageService.ts` | `localStorage` | Sole browser persistence adapter; replace with MHS save/profile implementation. |
+| `src/economy`, `src/progression`, `src/cosmetics` | No direct `localStorage` after the audit action pass | Keep these services storage-adapter driven. |
 | `src/procgen/bootstrapProcgenDebug.ts` | DOM toolbar, clipboard, URL mutation | Rebuild as editor utility or dev-only MHS component. |
 
 ## Debug Tooling
@@ -72,6 +74,7 @@ Three.js inventory overlaps with browser-only risks:
 | `src/procgen/ProcgenDebugViewer.ts` | Separate scene, renderer, camera, OrbitControls, debug labels, hazard preview | Keep web-only or rebuild as MHS editor utility. Do not ship runtime. |
 | `src/procgen/DebugMapRenderer.ts` | `CanvasTexture`, sprites, placeholder meshes | Editor/debug-only visualization. |
 | `src/procgen/SocketDebugHelpers.ts` | Spheres and arrows for socket visualization | Editor/debug-only visualization. |
+| `src/mhs/WebOnlyModules.ts` | No Three.js dependency | Maintains a data list of web/debug-only modules to keep port scope explicit. |
 
 ## Primitive / Geometry Inventory
 
@@ -96,13 +99,12 @@ Current direct Three or `THREE.` files include:
 - `src/hazards/**`
 - `src/input/DragShotInput.ts`
 - `src/level/**` render/decor/tile modules
-- `src/procgen/DebugMapRenderer.ts`, `ProcgenDebugViewer.ts`, `SocketDebugHelpers.ts`, `TileCatalog.ts`, `TilePlacementSolver.ts`, `procgenModelScale.ts`, `procgenUndermapQuads.ts`
+- `src/procgen/DebugMapRenderer.ts`, `ProcgenDebugViewer.ts`, `SocketDebugHelpers.ts`, `procgenModelScale.ts`, `procgenUndermapQuads.ts`
 
 ## Recommended Cleanup Before Port
 
-1. Replace Three vector use in portable logic with plain math/data helpers.
-2. Create a prefab/template mapping table for every `AssetKey` and `HazardKind`.
-3. Convert tile footprint and pivot/base rules into explicit asset metadata tests.
-4. Keep `ProcgenDebugViewer` and socket helpers web/editor-only.
-5. Add tests around `SimpleBallPhysics`, `courseSurface`, and recent procgen replay seeds before translating gameplay.
-
+1. Continue extracting `Game.ts` lifecycle decisions into `HoleSession` commands and platform-service calls.
+2. Make web hazard classes consume or mirror the pure `evaluateHazardEffect` behavior contract.
+3. Convert tile footprint and pivot/base rules into offline asset metadata tests.
+4. Keep `ProcgenDebugViewer`, socket helpers, and debug renderers web/editor-only.
+5. Replace runtime GLB/FBX loader assumptions with MHS prefab/template references and optimize the largest models.

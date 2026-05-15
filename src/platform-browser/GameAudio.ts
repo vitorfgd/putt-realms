@@ -1,5 +1,7 @@
 import { RunPhase } from "../core/RunStateMachine";
 import { publicUrl } from "../core/publicPath";
+import type { AudioService, StorageService } from "../platform/PlatformServices";
+import { browserStorage } from "./BrowserStorageService";
 
 const PATH = {
   hit: publicUrl("assets/audio/hit.ogg"),
@@ -36,7 +38,7 @@ type AudioCueName =
 /**
  * Browser HTMLAudio — paths are under Vite `public/` (e.g. `public/assets/audio/…`).
  */
-export class GameAudio {
+export class GameAudio implements AudioService {
   private unlocked = false;
   private gameplay: HTMLAudioElement | null = null;
   private gameplayKey: string | null = null;
@@ -50,7 +52,7 @@ export class GameAudio {
     sfxVolume: 1,
   };
 
-  constructor() {
+  constructor(private readonly storage: StorageService = browserStorage) {
     this.loadSettings();
   }
 
@@ -106,6 +108,18 @@ export class GameAudio {
     };
     const pick = cfg[name];
     void this.playOneShot(pick.src, pick.volume * this.settings.sfxVolume, pick.rate);
+  }
+
+  playSfx(id: string): void {
+    if (isAudioCueName(id)) this.playNamed(id);
+  }
+
+  setMusicMuted(muted: boolean): void {
+    this.setSettings({ musicMuted: muted });
+  }
+
+  setSfxMuted(muted: boolean): void {
+    this.setSettings({ sfxMuted: muted });
   }
 
   setSettings(next: Partial<AudioSettings>): void {
@@ -288,7 +302,7 @@ export class GameAudio {
 
   private loadSettings(): void {
     try {
-      const raw = localStorage.getItem(LS_AUDIO);
+      const raw = this.storage.read(LS_AUDIO);
       if (!raw) return;
       this.settings = { ...this.settings, ...JSON.parse(raw) };
     } catch {
@@ -298,9 +312,24 @@ export class GameAudio {
 
   private saveSettings(): void {
     try {
-      localStorage.setItem(LS_AUDIO, JSON.stringify(this.settings));
+      this.storage.write(LS_AUDIO, JSON.stringify(this.settings));
     } catch {
       /* ignore full storage */
     }
   }
+}
+
+function isAudioCueName(value: string): value is AudioCueName {
+  return (
+    value === "hit" ||
+    value === "rail" ||
+    value === "hazard" ||
+    value === "oob" ||
+    value === "hole" ||
+    value === "coin" ||
+    value === "ui" ||
+    value === "reward" ||
+    value === "skip" ||
+    value === "level"
+  );
 }

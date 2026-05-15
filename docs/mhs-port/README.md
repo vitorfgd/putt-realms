@@ -27,6 +27,11 @@ Useful files there include `Best Practices.md`, `TypeScript in MHE2.md`, and the
 | [MANUS_AND_AI_BOUNDARIES.md](./MANUS_AND_AI_BOUNDARIES.md) | What AI agents (e.g. Manus) should / must not do |
 | [SKILLS_STUBS.md](./SKILLS_STUBS.md) | Future `Assistant/skills/`-style tasks (stubs only) |
 | [SNACKABLE_ALIGNMENT.md](./SNACKABLE_ALIGNMENT.md) | Checklist vs snackable / AI template expectations |
+| [PORT_READINESS_ROADMAP.md](./PORT_READINESS_ROADMAP.md) | Current pre-port boundary, do-not-port list, readiness milestones |
+| [FINAL_3D_PORT_HANDOFF.md](./FINAL_3D_PORT_HANDOFF.md) | Final 3D MHS bootstrap, template, event, audio, pooling, and service plan |
+| [DRY_RUN_PORT_MAP.md](./DRY_RUN_PORT_MAP.md) | File-area classification for portable, web-only, future MHS replacement, asset-pipeline, and excluded work |
+
+Current code seams for the port: `src/core/HoleSession.ts`, `src/level/GeneratedLevelV1.ts`, `src/mhs/PrefabRegistry.ts`, `src/mhs/MhsSpawnManifest.ts`, `src/hazards/HazardSimulationContract.ts`, `src/platform/PlatformServices.ts`, `src/platform-browser/BrowserPlatformServices.ts`, and `src/ui/UiState.ts`.
 
 ## Current audit and risk register
 

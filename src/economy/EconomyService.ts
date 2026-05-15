@@ -2,19 +2,21 @@ import {
   computeHoleInOnePayout,
   skipCostCoins,
 } from "./economyFormulas";
+import type { StorageService } from "../platform/PlatformServices";
+import { browserStorage } from "../platform-browser/BrowserStorageService";
 
 const LS_COINS = "pmg_coins_v1";
 const LS_STREAK = "pmg_hio_streak_v1";
 
 /**
- * Coins + hole-in-one streak persistence (localStorage).
+ * Coins + hole-in-one streak persistence.
  */
 export class EconomyService {
   private coins = 0;
   /** Consecutive levels completed with a hole-in-one */
   private holeInOneStreak = 0;
 
-  constructor() {
+  constructor(private readonly storage: StorageService = browserStorage) {
     this.load();
   }
 
@@ -86,12 +88,12 @@ export class EconomyService {
 
   private load(): void {
     try {
-      const c = localStorage.getItem(LS_COINS);
+      const c = this.storage.read(LS_COINS);
       if (c !== null) {
         const n = Number.parseInt(c, 10);
         if (!Number.isNaN(n) && n >= 0) this.coins = n;
       }
-      const s = localStorage.getItem(LS_STREAK);
+      const s = this.storage.read(LS_STREAK);
       if (s !== null) {
         const n = Number.parseInt(s, 10);
         if (!Number.isNaN(n) && n >= 0) this.holeInOneStreak = n;
@@ -103,8 +105,8 @@ export class EconomyService {
 
   private save(): void {
     try {
-      localStorage.setItem(LS_COINS, String(this.coins));
-      localStorage.setItem(LS_STREAK, String(this.holeInOneStreak));
+      this.storage.write(LS_COINS, String(this.coins));
+      this.storage.write(LS_STREAK, String(this.holeInOneStreak));
     } catch {
       /* ignore */
     }

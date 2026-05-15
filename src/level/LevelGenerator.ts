@@ -94,6 +94,13 @@ function levelId(levelIndex: number, path: GridCell[]): string {
   return `lvl-${levelIndex}-${sig}`;
 }
 
+/**
+ * Legacy web QA fallback only.
+ *
+ * The MHS planning path should consume procgen through `adaptProcgenMapToGeneratedLevel`
+ * and `GeneratedLevelV1`; do not port this generator unless the fallback is explicitly
+ * promoted again.
+ */
 export class LevelGenerator {
   /**
    * Procedural single-path layout with difficulty search (≤30 candidates).

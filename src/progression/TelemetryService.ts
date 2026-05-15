@@ -1,4 +1,6 @@
 import type { GeneratedLevel, HoleTelemetry } from "../level/LevelTypes";
+import type { StorageService } from "../platform/PlatformServices";
+import { browserStorage } from "../platform-browser/BrowserStorageService";
 
 const LS_TELEMETRY = "pmg_hole_telemetry_v1";
 
@@ -13,7 +15,7 @@ export interface HoleStatsDraft {
 export class TelemetryService {
   private readonly entries: HoleTelemetry[] = [];
 
-  constructor() {
+  constructor(private readonly storage: StorageService = browserStorage) {
     this.load();
   }
 
@@ -74,7 +76,7 @@ export class TelemetryService {
 
   private load(): void {
     try {
-      const raw = localStorage.getItem(LS_TELEMETRY);
+      const raw = this.storage.read(LS_TELEMETRY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -87,7 +89,7 @@ export class TelemetryService {
 
   private save(): void {
     try {
-      localStorage.setItem(LS_TELEMETRY, JSON.stringify(this.entries));
+      this.storage.write(LS_TELEMETRY, JSON.stringify(this.entries));
     } catch {
       /* ignore full storage */
     }

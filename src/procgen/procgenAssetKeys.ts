@@ -1,5 +1,5 @@
-import * as THREE from "three";
 import type { AssetKey } from "../art/AssetRegistry";
+import type { Vec3Like } from "../core/math";
 import type { TileType } from "./MapGenerationTypes";
 import { getTileDefinition } from "./TileCatalog";
 
@@ -27,12 +27,13 @@ export const PROCGEN_PRELOAD_KEYS: readonly AssetKey[] = Object.values(
 /** Deck → artist pivot in unrotated tile space; applied as child offset under the deck root (see TileKit). */
 export function procgenPivotOffsetForAssetKey(
   assetKey: AssetKey,
-): THREE.Vector3 | null {
+): Vec3Like | null {
   for (const [tileType, key] of Object.entries(
     PROCGEN_TILE_TO_ASSET,
-  ) as [TileType, AssetKey][]) {
+    ) as [TileType, AssetKey][]) {
     if (key === assetKey) {
-      return getTileDefinition(tileType).pivotOffsetFromDeckOrigin.clone();
+      const offset = getTileDefinition(tileType).pivotOffsetFromDeckOrigin;
+      return { ...offset };
     }
   }
   return null;

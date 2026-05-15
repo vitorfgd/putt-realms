@@ -8,11 +8,13 @@ Full generator rules: [`../PROCGEN.md`](../PROCGEN.md).
 
 1. `MapGenerationEndpoint.generateMap(GenerateMapRequest)` → `GeneratedMap`.
 2. `validateGeneratedMap` gates layout/topology.
-3. `adaptProcgenMapToGeneratedLevel` → `GeneratedLevel` (`tiles`, `surface`, `railColliders`, hazard specs, …).
+3. `adaptProcgenMapToGeneratedLevel` -> `GeneratedLevel` (`tiles`, `surface`, `railColliders`, hazard specs, ...).
+4. `toGeneratedLevelV1` -> strict MHS interchange payload with debug maps removed.
+5. `createMhsSpawnManifest` -> prefab spawn intents keyed by `MHS_PREFAB_REGISTRY` without `TileKit` or Three scene objects.
 
 ## What to spawn (per hole)
 
-For each entry in `GeneratedLevel.tiles` (`PlacedTile`):
+For each entry in `GeneratedLevelV1.tiles` (`PlacedTile`):
 
 | Data | Spawn use |
 |------|-----------|
@@ -40,7 +42,9 @@ Generated in `generateHazardSpecs(levelIndex, tiles, rng)`:
 - Only certain **`type === "straight"`** tiles with `hazardSafe !== false`, non-ramp, away from start/hole by station guard (`eligibleTileIndicesForHazards`).
 - **`portal_gate`**: exactly **two** specs sharing `portalPairId`, distinct `portalRole` (`a`/`b`), spaced by tile index and **station index** gaps.
 
-**Prefab recipe**: For each spec, spawn hazard prefab at `tiles[tileIndex]` deck pose (`railOrigin*` overrides if present). Portal pairs resolve partner tile at runtime from shared `portalPairId`.
+**Prefab recipe**: For each spec, spawn hazard prefab at `tiles[tileIndex]` deck pose (`railOrigin*` overrides if present). Portal pairs resolve partner tile at runtime from shared `portalPairId`. Use `src/mhs/PrefabRegistry.ts` as the current code-level key-to-prefab manifest and `src/mhs/MhsSpawnManifest.ts` as the pure projection from `GeneratedLevelV1` to spawn data.
+
+Portable hazard behavior is described in `src/hazards/HazardSimulationContract.ts`. Current web hazard classes still mix visual meshes and runtime effects; the MHS port should implement the contract with MHS components/prefabs instead of translating Three hazard classes directly.
 
 ## Collectibles
 
@@ -50,7 +54,7 @@ Generated in `generateHazardSpecs(levelIndex, tiles, rng)`:
 
 - `procgenSeed` + `levelIndex` reproduces layout when running the same TS generator.
 - **Web prototype:** the **`?procgenDebug`** URL mode runs the Three.js **ProcgenDebugViewer** (see [`../PROCGEN_DEBUG.md`](../PROCGEN_DEBUG.md)); there is no separate HTTP procgen API in-repo.
-- `procgenDebugInfo` may include `gridPath`, `spinePath`, `progressionProfile`—useful for tooling; **do not** require unknown keys in MHE runtime.
+- `procgenDebugInfo` may include `gridPath`, `spinePath`, `progressionProfile`--useful for tooling; **do not** require unknown keys in MHE runtime. These fields are excluded from `GeneratedLevelV1`.
 
 ## AI-safe variation
 

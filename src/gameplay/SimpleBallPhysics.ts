@@ -1,4 +1,3 @@
-import * as THREE from "three";
 import type {
   CourseSurface,
   LevelWorldBounds,
@@ -6,6 +5,12 @@ import type {
 } from "../level/LevelTypes";
 import { sampleCourseSurface } from "../level/courseSurface";
 import { RAIL_THICKNESS } from "../level/TileDimensions";
+import {
+  closestPointOnSegment2D,
+  MutableVec3,
+  type Vec2Like,
+  type Vec3Like,
+} from "../core/math";
 import {
   FALL_OOB_Y,
   GRAVITY,
@@ -32,26 +37,8 @@ export interface PhysicsStepEnvironment {
   planarAccelZ?: number;
 }
 
-function closestPointOnSegment2D(
-  px: number,
-  pz: number,
-  ax: number,
-  az: number,
-  bx: number,
-  bz: number,
-): { x: number; z: number } {
-  const abx = bx - ax;
-  const abz = bz - az;
-  const apx = px - ax;
-  const apz = pz - az;
-  const ab2 = abx * abx + abz * abz;
-  let t = ab2 > 1e-10 ? (apx * abx + apz * abz) / ab2 : 0;
-  t = Math.max(0, Math.min(1, t));
-  return { x: ax + abx * t, z: az + abz * t };
-}
-
 export class SimpleBallPhysics {
-  readonly velocity = new THREE.Vector3(0, 0, 0);
+  readonly velocity = new MutableVec3(0, 0, 0);
   private settled = true;
   private rails: readonly RailCapsule[] = [];
   private surface: CourseSurface | undefined;
@@ -110,18 +97,17 @@ export class SimpleBallPhysics {
     this.settled = true;
   }
 
-  applyShot(directionXZ: THREE.Vector2, speed: number): void {
-    const dir = directionXZ.clone();
-    if (dir.lengthSq() < 1e-8) return;
-    dir.normalize();
-    this.velocity.x = dir.x * speed;
-    this.velocity.z = dir.y * speed;
+  applyShot(directionXZ: Vec2Like, speed: number): void {
+    const len = Math.hypot(directionXZ.x, directionXZ.y);
+    if (len < 1e-8) return;
+    this.velocity.x = (directionXZ.x / len) * speed;
+    this.velocity.z = (directionXZ.y / len) * speed;
     this.velocity.y = SHOT_LOB_RATIO * speed;
     this.settled = false;
   }
 
   step(
-    position: THREE.Vector3,
+    position: Vec3Like,
     deltaSeconds: number,
     env?: PhysicsStepEnvironment,
   ): PhysicsStepResult {
@@ -141,7 +127,7 @@ export class SimpleBallPhysics {
   }
 
   private stepOnce(
-    position: THREE.Vector3,
+    position: Vec3Like,
     deltaSeconds: number,
     env?: PhysicsStepEnvironment,
   ): PhysicsStepResult {
@@ -236,7 +222,7 @@ export class SimpleBallPhysics {
   }
 
   /** Cream wood rails: push ball out + damp bounce along normal (matches TileKit thickness). */
-  private resolveWoodRails(position: THREE.Vector3, supportY: number): void {
+  private resolveWoodRails(position: Vec3Like, supportY: number): void {
     const pad = RAIL_THICKNESS * 0.5 + this.radius * 0.94;
 
     for (let pass = 0; pass < 4; pass++) {

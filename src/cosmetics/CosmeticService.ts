@@ -1,5 +1,7 @@
 import { BALL_COSMETICS } from "./cosmeticCatalog";
 import type { BallCosmeticId } from "./cosmeticTypes";
+import type { StorageService } from "../platform/PlatformServices";
+import { browserStorage } from "../platform-browser/BrowserStorageService";
 
 const LS_EQUIPPED = "pmg_equipped_ball_cosmetic_v1";
 const LS_UNLOCKED = "pmg_unlocked_ball_cosmetics_v1";
@@ -19,7 +21,7 @@ export class CosmeticService {
   private equipped: BallCosmeticId = "classic_ivory";
   private unlocked: Set<BallCosmeticId> = defaultUnlockedIds();
 
-  constructor() {
+  constructor(private readonly storage: StorageService = browserStorage) {
     this.load();
   }
 
@@ -50,7 +52,7 @@ export class CosmeticService {
       this.unlocked.add(id);
     }
     try {
-      const raw = localStorage.getItem(LS_EQUIPPED);
+      const raw = this.storage.read(LS_EQUIPPED);
       if (
         raw &&
         BALL_COSMETICS.some((c) => c.id === raw) &&
@@ -64,7 +66,7 @@ export class CosmeticService {
   }
 
   private loadUnlockedSet(): Set<BallCosmeticId> {
-    const raw = localStorage.getItem(LS_UNLOCKED);
+    const raw = this.storage.read(LS_UNLOCKED);
     if (!raw) return new Set();
     try {
       const arr = JSON.parse(raw) as unknown;
@@ -87,7 +89,7 @@ export class CosmeticService {
 
   private saveEquipped(): void {
     try {
-      localStorage.setItem(LS_EQUIPPED, this.equipped);
+      this.storage.write(LS_EQUIPPED, this.equipped);
     } catch {
       /* ignore */
     }
@@ -95,7 +97,7 @@ export class CosmeticService {
 
   private saveUnlocked(): void {
     try {
-      localStorage.setItem(
+      this.storage.write(
         LS_UNLOCKED,
         JSON.stringify([...this.unlocked]),
       );

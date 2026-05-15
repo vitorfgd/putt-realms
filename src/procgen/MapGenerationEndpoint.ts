@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import { MutableVec3 } from "../core/math";
 import type { GridCell } from "../level/pathGen";
 import {
   computeCameraBoundsFromTiles,
@@ -73,12 +73,12 @@ function syntheticSpineRowMajor(path: GridCell[]): GridCell[] {
   return spine;
 }
 
-function gapWorldFromCutStation(spine: GridCell[], cutStation: number): THREE.Vector3 {
+function gapWorldFromCutStation(spine: GridCell[], cutStation: number): MutableVec3 {
   const cur = spine[cutStation]!;
   const next = spine[cutStation + 1]!;
   const dx = Math.sign(next.x - cur.x);
   const dz = Math.sign(next.z - cur.z);
-  return new THREE.Vector3(
+  return new MutableVec3(
     dx * TILE_LENGTH * PORTAL_SEGMENT_GAP_ROWS,
     0,
     dz * TILE_LENGTH * PORTAL_SEGMENT_GAP_ROWS,
@@ -213,8 +213,8 @@ function translationBeforeStation(
   station: number,
   cutsSorted: readonly number[],
   spine: GridCell[],
-): THREE.Vector3 {
-  const v = new THREE.Vector3();
+): MutableVec3 {
+  const v = new MutableVec3();
   for (const c of cutsSorted) {
     if (c < station) v.add(gapWorldFromCutStation(spine, c));
   }
@@ -226,9 +226,9 @@ function repositionDeckTileFromGridCurved(
   cell: GridCell,
   gridCx: number,
   gridCz: number,
-  worldExtra: THREE.Vector3,
-  deckScratch: THREE.Vector3,
-  pivotScratch: THREE.Vector3,
+  worldExtra: MutableVec3,
+  deckScratch: MutableVec3,
+  pivotScratch: MutableVec3,
 ): void {
   const def = getTileDefinition(tile.tileType);
   const elev = tile.position.y;
@@ -391,7 +391,7 @@ function pickInteriorZCount(
 function computeStartHoleWorld(
   tiles: GeneratedMap["tiles"],
   _path: GridCell[],
-): { start: THREE.Vector3; hole: THREE.Vector3 } {
+): { start: MutableVec3; hole: MutableVec3 } {
   const first = tiles[0];
   const last = tiles[tiles.length - 1];
   const def0 = getTileDefinition(first.tileType);
@@ -407,8 +407,8 @@ function computeStartHoleWorld(
     defL,
   );
   void _path;
-  const start = new THREE.Vector3(deck0.x, deck0.y, deck0.z);
-  const hole = new THREE.Vector3(deckL.x, deckL.y, deckL.z);
+  const start = new MutableVec3(deck0.x, deck0.y, deck0.z);
+  const hole = new MutableVec3(deckL.x, deckL.y, deckL.z);
   return { start, hole };
 }
 
@@ -416,9 +416,9 @@ function computeStartHoleWorld(
 function computeStartHoleDoubleRow(
   tiles: GeneratedMap["tiles"],
   _spinePath?: GridCell[],
-): { start: THREE.Vector3; hole: THREE.Vector3 } {
+): { start: MutableVec3; hole: MutableVec3 } {
   void _spinePath;
-  const pairCenter = (leftIndex: number): THREE.Vector3 => {
+  const pairCenter = (leftIndex: number): MutableVec3 => {
     const a = deckCenterWorldFromPivot(
       tiles[leftIndex].position,
       tiles[leftIndex].rotationY,
@@ -429,7 +429,7 @@ function computeStartHoleDoubleRow(
       tiles[leftIndex + 1].rotationY,
       getTileDefinition(tiles[leftIndex + 1].tileType),
     );
-    return new THREE.Vector3(
+    return new MutableVec3(
       (a.x + b.x) / 2,
       (a.y + b.y) / 2,
       (a.z + b.z) / 2,
@@ -591,7 +591,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
       ...map,
       id: `${map.id}-portal`,
       tiles: nextTiles,
-      holePosition: finishDeck,
+      holePosition: new MutableVec3(finishDeck.x, finishDeck.y, finishDeck.z),
       cameraBounds: computeCameraBoundsFromTiles({ tiles: nextTiles }),
       portalLinks,
       finishPortalTileIndex: finalTileIndex,
@@ -690,9 +690,9 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
 
     let pendingPortalFrom: number | undefined;
 
-    const deckScratch = new THREE.Vector3();
-    const pivotScratch = new THREE.Vector3();
-    const pivotWorld = new THREE.Vector3();
+    const deckScratch = new MutableVec3();
+    const pivotScratch = new MutableVec3();
+    const pivotWorld = new MutableVec3();
 
     for (let s = 0; s < spine.length; s++) {
       const tw = translationBeforeStation(s, cuts, spine);

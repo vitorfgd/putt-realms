@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { Vec2Like } from "../core/math";
 import { Ball } from "./Ball";
 import type { CourseSurface } from "../level/LevelTypes";
 import { sampleCourseSurface } from "../level/courseSurface";
@@ -80,7 +81,7 @@ export class ShotEffects {
     this.confettiMats.forEach((m) => m.dispose());
   }
 
-  onShot(power01: number, dir: THREE.Vector2): void {
+  onShot(power01: number, dir: Vec2Like): void {
     this.squashTimer = 0.18 + power01 * 0.08;
     this.trailTimer = power01 > 0.58 ? 0.55 + power01 * 0.35 : 0;
     const base = this.ball.position;

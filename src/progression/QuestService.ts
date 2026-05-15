@@ -1,3 +1,6 @@
+import type { StorageService } from "../platform/PlatformServices";
+import { browserStorage } from "../platform-browser/BrowserStorageService";
+
 export interface QuestProgress {
   underParCompletions: number;
   collectedCoins: number;
@@ -19,7 +22,7 @@ function emptyProgress(): QuestProgress {
 export class QuestService {
   private progress: QuestProgress = emptyProgress();
 
-  constructor() {
+  constructor(private readonly storage: StorageService = browserStorage) {
     this.load();
   }
 
@@ -42,7 +45,7 @@ export class QuestService {
 
   private load(): void {
     try {
-      const raw = localStorage.getItem(LS_QUESTS);
+      const raw = this.storage.read(LS_QUESTS);
       if (!raw) return;
       this.progress = { ...emptyProgress(), ...JSON.parse(raw) };
     } catch {
@@ -52,7 +55,7 @@ export class QuestService {
 
   private save(): void {
     try {
-      localStorage.setItem(LS_QUESTS, JSON.stringify(this.progress));
+      this.storage.write(LS_QUESTS, JSON.stringify(this.progress));
     } catch {
       /* ignore full storage */
     }

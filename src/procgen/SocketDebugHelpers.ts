@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { Vec3Like } from "../core/math";
 import type { TileDefinition } from "./TileCatalog";
 import {
   deckCenterWorldFromPivot,
@@ -73,7 +74,7 @@ function smallSphere(color: number, radius: number): THREE.Mesh {
  */
 export function createSocketDebugGroup(
   def: TileDefinition,
-  pivotWorld: THREE.Vector3,
+  pivotWorld: Vec3Like,
   rotationY: number,
 ): THREE.Group {
   const root = new THREE.Group();

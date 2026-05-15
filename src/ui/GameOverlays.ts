@@ -1,5 +1,7 @@
 import type { GeneratedLevel } from "../level/LevelTypes";
 import type { AudioSettings } from "../platform-browser/GameAudio";
+import type { StorageService } from "../platform/PlatformServices";
+import { browserStorage } from "../platform-browser/BrowserStorageService";
 import type { QuestProgress } from "../progression/QuestService";
 import type { MushroomTipTier } from "../progression/ftueState";
 import type { FtueIntroLine } from "./ftueScript";
@@ -45,7 +47,10 @@ export class GameOverlays {
   private ftueCompleteCallback?: () => void;
   private yipTipClear = 0;
 
-  constructor(parent: HTMLElement) {
+  constructor(
+    parent: HTMLElement,
+    private readonly storage: StorageService = browserStorage,
+  ) {
     this.root = document.createElement("div");
     this.root.className = "game-overlays";
     parent.appendChild(this.root);
@@ -381,7 +386,7 @@ export class GameOverlays {
 
   private loadSeenTutorial(): void {
     try {
-      this.seenTutorial = JSON.parse(localStorage.getItem(LS_TUTORIAL) ?? "{}");
+      this.seenTutorial = JSON.parse(this.storage.read(LS_TUTORIAL) ?? "{}");
     } catch {
       this.seenTutorial = {};
     }
@@ -389,7 +394,7 @@ export class GameOverlays {
 
   private saveSeenTutorial(): void {
     try {
-      localStorage.setItem(LS_TUTORIAL, JSON.stringify(this.seenTutorial));
+      this.storage.write(LS_TUTORIAL, JSON.stringify(this.seenTutorial));
     } catch {
       /* ignore full storage */
     }

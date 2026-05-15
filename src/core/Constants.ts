@@ -1,4 +1,5 @@
 import { PSX_SKY_BLUE } from "../art/Materials";
+import { browserDebugConfig } from "../platform-browser/BrowserDebugConfigService";
 import type { ProcgenLayoutMode } from "../procgen/MapGenerationTypes";
 
 /** Portrait gameplay composition — 9 : 18 (camera + letterboxed viewport) */
@@ -13,8 +14,9 @@ export const GAMEPLAY_ASPECT =
 export const SKY_BLUE = PSX_SKY_BLUE;
 
 /**
- * When `false` and the URL has no `?psxLowRes`, uses the normal single-pass
- * `WebGLRenderer.render` path (fully reversible).
+ * When `true`, the PSX low-res pipeline is always on (URL cannot disable).
+ * When `false`, the pipeline defaults on; use `?psxLowRes=false` (or `0` / `off` / `no`)
+ * for the stock single-pass `WebGLRenderer.render` path.
  */
 export const ENABLE_PSX_LOW_RES_PIPELINE = false;
 /** Integer-ish divisor on gameplay viewport resolution (e.g. 3 ≈ 1/3 per axis). */
@@ -32,34 +34,59 @@ export const PSX_PRESENT_ORDERED_DITHER_STRENGTH = 0;
 /** `0` = off. `0.2`–`0.45` = alternating-row bright/dim (CRT-ish; low-res pipeline only). */
 export const PSX_PRESENT_SCANLINE_STRENGTH = 0;
 
-/**
- * Low-res RT pass is on if the constant is true or the page URL includes `?psxLowRes`.
- * Remove the query param and set `ENABLE_PSX_LOW_RES_PIPELINE` to `false` for stock rendering.
- */
-export function isPsxLowResPipelineActive(): boolean {
-  if (ENABLE_PSX_LOW_RES_PIPELINE) return true;
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).has("psxLowRes");
+function isDebugUrlFlagExplicitlyOff(
+  flag: string | boolean | null,
+): boolean {
+  if (flag === null) return false;
+  if (flag === true || flag === "") return false;
+  if (typeof flag === "string") {
+    const v = flag.trim().toLowerCase();
+    return v === "0" || v === "false" || v === "off" || v === "no";
+  }
+  return false;
 }
 
 /**
- * Procgen debug (`?procgenDebug`): PSX low-res presenter on first load.
- * URL `?procgenPsxLowRes` or `?psxLowRes` also enables it; the toolbar toggle updates `procgenPsxLowRes`.
+ * Low-res RT pass is on by default. Use `?psxLowRes=false` (or `0` / `off` / `no`) for the stock
+ * single-pass `WebGLRenderer.render` path. When {@link ENABLE_PSX_LOW_RES_PIPELINE} is `true`,
+ * the pipeline is always on (URL cannot disable).
  */
-export const PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT = false;
+export function isPsxLowResPipelineActive(): boolean {
+  if (ENABLE_PSX_LOW_RES_PIPELINE) return true;
+  if (isDebugUrlFlagExplicitlyOff(browserDebugConfig.getFlag("psxLowRes"))) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Procgen debug (`?procgenDebug`): PSX low-res presenter on first load matches the main game default (on).
+ * URL `?procgenPsxLowRes=false` or `?psxLowRes=false` opts out; the toolbar toggle updates `procgenPsxLowRes`.
+ */
+export const PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT = true;
 
 export function isProcgenDebugPsxLowResPreferred(): boolean {
-  if (typeof window === "undefined") return PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT;
-  const p = new URLSearchParams(window.location.search);
-  if (p.has("procgenPsxLowRes") || p.has("psxLowRes")) return true;
+  if (
+    isDebugUrlFlagExplicitlyOff(
+      browserDebugConfig.getFlag("procgenPsxLowRes"),
+    ) ||
+    isDebugUrlFlagExplicitlyOff(browserDebugConfig.getFlag("psxLowRes"))
+  ) {
+    return false;
+  }
+  if (
+    browserDebugConfig.getFlag("procgenPsxLowRes") !== null ||
+    browserDebugConfig.getFlag("psxLowRes") !== null
+  ) {
+    return true;
+  }
   return PROCGEN_DEBUG_PSX_LOW_RES_DEFAULT;
 }
 
 /** Exact replay: `?procgenSeed=<HUD seed>`; omit param to roll a new layout on each reload. */
 export function readProcgenSeedUrlOverride(): string | null {
-  if (typeof window === "undefined") return null;
-  const v = new URLSearchParams(window.location.search).get("procgenSeed");
-  const t = v?.trim();
+  const v = browserDebugConfig.getFlag("procgenSeed");
+  const t = typeof v === "string" ? v.trim() : "";
   return t ? t : null;
 }
 
@@ -68,9 +95,8 @@ export function readProcgenSeedUrlOverride(): string | null {
  * Omit param to use the generator default (double-row). Aliases: `single`, `double`, `2row`.
  */
 export function readProcgenLayoutUrlOverride(): ProcgenLayoutMode | null {
-  if (typeof window === "undefined") return null;
-  const raw = new URLSearchParams(window.location.search).get("procgenLayout");
-  const v = raw?.trim().toLowerCase();
+  const raw = browserDebugConfig.getFlag("procgenLayout");
+  const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   if (!v) return null;
   if (v === "single_path" || v === "single") return "single_path";
   if (v === "double_row_straight" || v === "double" || v === "2row") {
