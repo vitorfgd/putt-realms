@@ -1,6 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreBinaries": ["python"],
+  "ignoreDependencies": [
+    "@emnapi/core",
+    "@emnapi/runtime"
+  ],
   "rules": {
     "exports": "off",
     "types": "off",
