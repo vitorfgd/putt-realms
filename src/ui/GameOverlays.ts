@@ -8,6 +8,7 @@ import type { FtueIntroLine } from "./ftueScript";
 import { YIP_MUSHROOM_TIP } from "./ftueScript";
 import { YIP_DIALOGUE_FRAME, YIP_EXPRESSION_URL } from "./yipFtueAssets";
 import { publicUrl } from "../core/publicPath";
+import { bindImageButtonPressSpriteSwap } from "./imageButtonPressSpriteSwap";
 
 const LS_TUTORIAL = "pmg_seen_tutorial_v1";
 
@@ -267,6 +268,17 @@ export class GameOverlays {
     `;
     this.summaryPanel.classList.remove("overlay-panel--hidden");
     const nextBtn = this.summaryPanel.querySelector("[data-action='continue']");
+    const shopBtn = this.summaryPanel.querySelector("[data-action='shop']");
+    bindImageButtonPressSpriteSwap(
+      nextBtn,
+      publicUrl("assets/ui/run_summary_btn_next.png"),
+      publicUrl("assets/ui/run_summary_btn_next_pressed.png"),
+    );
+    bindImageButtonPressSpriteSwap(
+      shopBtn,
+      publicUrl("assets/ui/run_summary_btn_shop.png"),
+      publicUrl("assets/ui/run_summary_btn_shop_pressed.png"),
+    );
     nextBtn?.addEventListener(
       "click",
       () => {
@@ -276,7 +288,6 @@ export class GameOverlays {
       },
       { once: true },
     );
-    const shopBtn = this.summaryPanel.querySelector("[data-action='shop']");
     shopBtn?.addEventListener("click", () => {
       this.onUiSound?.();
       this.onShop?.();

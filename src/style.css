@@ -560,11 +560,6 @@ body {
   align-items: center;
   justify-content: center;
   filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.35));
-  transition: transform 0.08s ease;
-}
-
-.run-summary__btn:active {
-  transform: scale(0.97);
 }
 
 .run-summary__btn img {
@@ -1121,10 +1116,6 @@ body {
   user-select: none;
 }
 
-.hud-leaderboard-btn:active {
-  transform: translateY(1px) scale(0.97);
-}
-
 .hud-leaderboard {
   position: fixed;
   inset: 0;
@@ -1387,6 +1378,10 @@ body {
   background-size: contain;
   box-shadow: none;
   cursor: pointer;
+}
+
+.hud-skip-btn:active:not(:disabled) {
+  background-image: var(--hud-skip-btn-bg-pressed);
 }
 
 .hud-skip-btn:focus-visible {

@@ -12,6 +12,10 @@ document.documentElement.style.setProperty(
   "--hud-skip-btn-bg",
   `url("${publicUrl("assets/ui/skip_level.png")}")`,
 );
+document.documentElement.style.setProperty(
+  "--hud-skip-btn-bg-pressed",
+  `url("${publicUrl("assets/ui/skip_level_pressed.png")}")`,
+);
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 const hud = document.querySelector<HTMLElement>("#hud");

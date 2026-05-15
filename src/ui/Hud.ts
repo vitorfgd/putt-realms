@@ -1,5 +1,7 @@
 import { CALLOUT_SPRITES } from "./calloutSprites";
 import type { ProcgenEndpointReplayPayload } from "../procgen/MapGenerationTypes";
+import { publicUrl } from "../core/publicPath";
+import { bindImageButtonPressSpriteSwap } from "./imageButtonPressSpriteSwap";
 
 export type HudHintKind = "drag" | "release" | "rolling";
 
@@ -90,6 +92,13 @@ export class Hud {
       this.hideLeaderboard();
     });
     this.elLeaderboardShade.addEventListener("click", () => this.hideLeaderboard());
+    const lbNormal = publicUrl("assets/ui/leaderboard_button.png");
+    const lbPressed = publicUrl("assets/ui/leaderboard_button_pressed.png");
+    const lbImg = this.elLeaderboardBtn.querySelector("img");
+    if (lbImg instanceof HTMLImageElement) {
+      lbImg.src = lbNormal;
+    }
+    bindImageButtonPressSpriteSwap(this.elLeaderboardBtn, lbNormal, lbPressed);
   }
 
   /**
