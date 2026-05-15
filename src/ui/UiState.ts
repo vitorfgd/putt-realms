@@ -29,6 +29,8 @@ export interface OverlayState {
     par: number;
     coinsCollected: number;
     rewardCoins: number;
+    parStreakCoinPayout: number;
+    parStreakLevel: number;
     realmName: string;
     unlockedCosmetic?: string;
     questProgress: QuestProgress;

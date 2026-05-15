@@ -197,16 +197,66 @@ export function holeCupDark(): THREE.MeshStandardMaterial {
   return holeCupDarkMat;
 }
 
-/** Bundled portal swirl — hole cup surface (transparent edges) */
-const HOLE_PORTAL_ASSET = new URL(
+/** Purple swirl — teleport / gap / finish portal gates (transparent edges) */
+const HOLE_PORTAL_TELEPORT_ASSET = new URL(
   "../assets/textures/hole_portal.png",
   import.meta.url,
 ).href;
 
+/** Gold swirl — objective hole cup only */
+const HOLE_PORTAL_OBJECTIVE_ASSET = new URL(
+  "../assets/textures/hole_portal_gold.png",
+  import.meta.url,
+).href;
+
+function configurePortalSwirlTexture(tex: THREE.Texture): void {
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+}
+
+let teleportPortalSwirlMat: THREE.MeshBasicMaterial | null = null;
+
+/**
+ * Unlit purple portal swirl — {@link PortalGateHazard} swirls only (not the cup).
+ * Call {@link preloadHolePortalTexture} early so the map is usually ready before first paint.
+ */
+export function teleportPortalSwirlMaterial(): THREE.MeshBasicMaterial {
+  if (!teleportPortalSwirlMat) {
+    teleportPortalSwirlMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -0.8,
+      polygonOffsetUnits: -0.8,
+    });
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      HOLE_PORTAL_TELEPORT_ASSET,
+      (tex) => {
+        configurePortalSwirlTexture(tex);
+        if (teleportPortalSwirlMat) {
+          teleportPortalSwirlMat.map = tex;
+          teleportPortalSwirlMat.needsUpdate = true;
+        }
+      },
+      undefined,
+      () => {
+        /* keep flat white */
+      },
+    );
+  }
+  return teleportPortalSwirlMat;
+}
+
 let holeCupPortalMat: THREE.MeshBasicMaterial | null = null;
 
 /**
- * Unlit textured cup — shared across holes. PNG alpha preserved.
+ * Unlit gold cup surface — objective holes only. PNG alpha preserved.
  * Call {@link preloadHolePortalTexture} early so the map is usually ready before first paint.
  */
 export function holeCupPortalSurfaceMaterial(): THREE.MeshBasicMaterial {
@@ -222,13 +272,9 @@ export function holeCupPortalSurfaceMaterial(): THREE.MeshBasicMaterial {
     });
     const loader = new THREE.TextureLoader();
     loader.load(
-      HOLE_PORTAL_ASSET,
+      HOLE_PORTAL_OBJECTIVE_ASSET,
       (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.wrapS = THREE.ClampToEdgeWrapping;
-        tex.wrapT = THREE.ClampToEdgeWrapping;
-        tex.minFilter = THREE.LinearMipmapLinearFilter;
-        tex.magFilter = THREE.LinearFilter;
+        configurePortalSwirlTexture(tex);
         if (holeCupPortalMat) {
           holeCupPortalMat.map = tex;
           holeCupPortalMat.needsUpdate = true;
@@ -243,9 +289,10 @@ export function holeCupPortalSurfaceMaterial(): THREE.MeshBasicMaterial {
   return holeCupPortalMat;
 }
 
-/** Ensures portal material exists and loading has started — invoke from main before Game */
+/** Ensures both portal textures have started loading — invoke from main before Game */
 export function preloadHolePortalTexture(): void {
   holeCupPortalSurfaceMaterial();
+  teleportPortalSwirlMaterial();
 }
 
 /** Saturated fantasy flag — flat, readable silhouette */

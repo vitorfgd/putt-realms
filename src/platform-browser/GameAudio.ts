@@ -7,6 +7,11 @@ const PATH = {
   hit: publicUrl("assets/audio/hit.ogg"),
   ball: publicUrl("assets/audio/ball_interaction.ogg"),
   bell: publicUrl("assets/audio/bell.wav"),
+  hole: publicUrl("assets/audio/hole.ogg"),
+  holeInOne: publicUrl("assets/audio/hole_in_one.ogg"),
+  levelClear: publicUrl("assets/audio/level_clear.ogg"),
+  outOfBounds: publicUrl("assets/audio/out_of_bounds.ogg"),
+  portalUse: publicUrl("assets/audio/portal_use.ogg"),
   bg1: publicUrl("assets/audio/bg_1.ogg"),
   bg2: publicUrl("assets/audio/bg_2.ogg"),
   bg3: publicUrl("assets/audio/bg_3.ogg"),
@@ -29,6 +34,9 @@ type AudioCueName =
   | "hazard"
   | "oob"
   | "hole"
+  | "holeInOne"
+  | "levelClear"
+  | "portalUse"
   | "coin"
   | "ui"
   | "reward"
@@ -98,8 +106,11 @@ export class GameAudio implements AudioService {
       hit: { src: PATH.hit, volume: 0.34, rate: 0.92 },
       rail: { src: PATH.ball, volume: 0.28, rate: 0.86 },
       hazard: { src: PATH.ball, volume: 0.9, rate: 0.82 },
-      oob: { src: PATH.ball, volume: 0.62, rate: 0.62 },
-      hole: { src: PATH.bell, volume: 0.92, rate: 1 },
+      oob: { src: PATH.outOfBounds, volume: 0.78, rate: 1 },
+      hole: { src: PATH.hole, volume: 0.88, rate: 1 },
+      holeInOne: { src: PATH.holeInOne, volume: 0.86, rate: 1 },
+      levelClear: { src: PATH.levelClear, volume: 0.82, rate: 1 },
+      portalUse: { src: PATH.portalUse, volume: 0.72, rate: 1 },
       coin: { src: PATH.bell, volume: 0.46, rate: 1.38 },
       ui: { src: PATH.ball, volume: 0.34, rate: 1.72 },
       reward: { src: PATH.bell, volume: 0.84, rate: 1.18 },
@@ -143,8 +154,20 @@ export class GameAudio implements AudioService {
   }
 
   /**
-   * BGM: `bg_2` / `bg_3` / `bg_1` cycle by level index during play only.
-   * Preview / transitions / hole-out do not stop or switch tracks — same loop keeps playing.
+   * Switches the looping gameplay BGM to the track for `levelIndex` (bg_2 / bg_3 / bg_1 cycle).
+   * Call when the player advances to the next level (e.g. summary “Next level”) so the song
+   * changes immediately, not when preview / first shot gameplay resumes.
+   */
+  switchGameplayBgmToLevel(levelIndex: number): void {
+    if (!this.unlocked) return;
+    this.ensureGameplayLoop(levelIndex);
+  }
+
+  /**
+   * BGM: keeps the current gameplay loop running and adjusts ducking by phase.
+   * Track selection for a new level is driven by {@link switchGameplayBgmToLevel} on advance;
+   * entering {@link RunPhase.AwaitingShot} after that re-applies the same track (no-op if unchanged).
+   * Preview / transitions / hole-out do not stop the loop — same track keeps playing until advance.
    */
   syncForPhase(phase: RunPhase, levelIndex: number): void {
     if (!this.unlocked) return;
@@ -326,6 +349,9 @@ function isAudioCueName(value: string): value is AudioCueName {
     value === "hazard" ||
     value === "oob" ||
     value === "hole" ||
+    value === "holeInOne" ||
+    value === "levelClear" ||
+    value === "portalUse" ||
     value === "coin" ||
     value === "ui" ||
     value === "reward" ||

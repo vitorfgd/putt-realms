@@ -30,7 +30,7 @@ export interface HoleSummaryPayload {
 export type HoleSessionCommand =
   | { type: "phaseChanged"; phase: RunPhase }
   | { type: "updateHud"; snapshot: HoleSessionSnapshot }
-  | { type: "playSound"; sound: "hit" | "hole" | "oob" | "coin" | "skip" | "ui" | "reward" }
+  | { type: "playSound"; sound: "hit" | "hole" | "coin" | "skip" | "ui" | "reward" }
   | { type: "showOverlay"; overlay: "summary"; payload: HoleSummaryPayload }
   | { type: "showOverlay"; overlay: "oob" | "skip" }
   | { type: "spawnCollectible"; id: string }
@@ -105,7 +105,6 @@ export class HoleSession {
       this.commands.push(
         { type: "completeHole" },
         { type: "setInputEnabled", enabled: false },
-        { type: "playSound", sound: "hole" },
       );
     }
     if (applied && event === RunEvent.OutOfBounds) {
@@ -136,7 +135,6 @@ export class HoleSession {
         this.commands.push(
           { type: "showOverlay", overlay: "oob" },
           { type: "recoverOob" },
-          { type: "playSound", sound: "oob" },
           {
             type: "recordTelemetry",
             result: "oob",

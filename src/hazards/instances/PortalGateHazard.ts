@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { assetRegistry } from "../../art/AssetRegistry";
-import { holeCupPortalSurfaceMaterial } from "../../art/Materials";
+import { teleportPortalSwirlMaterial } from "../../art/Materials";
 import type { SimpleBallPhysics } from "../../gameplay/SimpleBallPhysics";
 import { TILE_SIZE } from "../../level/TileDimensions";
 import type {
@@ -104,7 +104,7 @@ export class PortalGateHazard extends BaseHazard {
       this.group.add(inner);
     }
 
-    const swirlMat = holeCupPortalSurfaceMaterial();
+    const swirlMat = teleportPortalSwirlMaterial();
     this.portalSwirlGeometry = new THREE.CircleGeometry(0.98, 40);
     const swirlFront = new THREE.Mesh(this.portalSwirlGeometry, swirlMat);
     swirlFront.name = "PortalGateSwirlFront";

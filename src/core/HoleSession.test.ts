@@ -57,7 +57,6 @@ describe("HoleSession", () => {
       "updateHud",
       "showOverlay",
       "recoverOob",
-      "playSound",
       "recordTelemetry",
       "updateHud",
     ]);
@@ -126,7 +125,6 @@ describe("HoleSession", () => {
     expect(session.drainCommands().map((command) => command.type)).toEqual([
       "showOverlay",
       "recoverOob",
-      "playSound",
       "recordTelemetry",
       "updateHud",
     ]);

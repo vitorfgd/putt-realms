@@ -427,6 +427,42 @@ body {
   min-width: 3.2ch;
 }
 
+.run-summary__earnings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px clamp(12px, 3.2vw, 18px);
+  border-radius: 12px;
+  background: rgba(12, 4, 28, 0.28);
+  text-align: left;
+  font-size: clamp(13px, 3.4vw, 17px);
+  font-weight: 850;
+  color: rgba(246, 236, 255, 0.92);
+}
+
+.run-summary__earn-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.run-summary__earn-row span:last-child {
+  color: #ffe08a;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.run-summary__earn-row--total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(246, 236, 255, 0.22);
+  font-size: clamp(14px, 3.7vw, 18px);
+}
+
 .run-summary__unlock {
   margin: 0;
   color: #b8ff9a;

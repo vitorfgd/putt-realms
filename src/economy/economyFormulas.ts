@@ -28,3 +28,13 @@ export function computeHoleInOnePayout(
 export function skipCostCoins(difficulty: number): number {
   return 5 + difficulty * 5;
 }
+
+/**
+ * Bonus coins for finishing at or under par while a streak is active.
+ * After the Nth consecutive qualifying clear (N ≥ 1), grant N + 2 coins (3, 4, 5, …).
+ */
+export function parStreakBonusCoins(streakLengthAfterThisClear: number): number {
+  const n = Math.max(0, Math.floor(streakLengthAfterThisClear));
+  if (n <= 0) return 0;
+  return n + 2;
+}

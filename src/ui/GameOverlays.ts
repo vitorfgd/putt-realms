@@ -16,6 +16,10 @@ export interface LevelSummaryView {
   par: number;
   coinsCollected: number;
   rewardCoins: number;
+  /** Par-streak bonus (already credited); 0 omits the streak row */
+  parStreakCoinPayout: number;
+  /** Streak count N for "Par Streak xN" when par streak payout is shown */
+  parStreakLevel: number;
   realmName: string;
   unlockedCosmetic?: string;
   questProgress: QuestProgress;
@@ -193,8 +197,20 @@ export class GameOverlays {
   }
 
   showSummary(summary: LevelSummaryView): void {
-    const coinsTotal = summary.coinsCollected + summary.rewardCoins;
+    const field = Math.max(0, Math.floor(summary.coinsCollected));
+    const hioReward = Math.max(0, Math.floor(summary.rewardCoins));
+    const streak = Math.max(0, Math.floor(summary.parStreakCoinPayout));
+    const coinsTotal = field + hioReward + streak;
     const qp = summary.questProgress;
+    const streakLevel = Math.max(0, Math.floor(summary.parStreakLevel));
+    const hioRow =
+      hioReward > 0
+        ? `<div class="run-summary__earn-row"><span>Hole in One</span><span>+${hioReward}</span></div>`
+        : "";
+    const streakRow =
+      streak > 0 && streakLevel > 0
+        ? `<div class="run-summary__earn-row"><span>Par Streak x${streakLevel}</span><span>+${streak}</span></div>`
+        : "";
     this.summaryPanel.innerHTML = `
       <div class="run-summary" role="dialog" aria-labelledby="run-summary-title">
         <h2 id="run-summary-title" class="run-summary__visually-hidden">Run summary</h2>
@@ -212,8 +228,13 @@ export class GameOverlays {
             <dl class="run-summary__grid">
               <dt>Strokes</dt><dd>${summary.strokes}</dd>
               <dt>Par</dt><dd>${summary.par}</dd>
-              <dt>Coins</dt><dd>+${coinsTotal}</dd>
             </dl>
+            <div class="run-summary__earnings" aria-label="Coin earnings this hole">
+              <div class="run-summary__earn-row"><span>Coins Found</span><span>+${field}</span></div>
+              ${hioRow}
+              ${streakRow}
+              <div class="run-summary__earn-row run-summary__earn-row--total"><span>Total Earnings</span><span>+${coinsTotal}</span></div>
+            </div>
             ${
               summary.unlockedCosmetic
                 ? `<p class="run-summary__unlock">Unlocked: ${escapeHtml(summary.unlockedCosmetic)}</p>`
