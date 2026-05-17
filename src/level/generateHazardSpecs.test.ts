@@ -11,6 +11,11 @@ function rngFixed(seed: number): () => number {
   };
 }
 
+function rngSequence(values: number[], fallback: number): () => number {
+  let i = 0;
+  return () => values[i++] ?? fallback;
+}
+
 /** Minimal straight-line course for hazard eligibility */
 function straightTiles(n: number): PlacedTile[] {
   const tiles: PlacedTile[] = [];
@@ -66,5 +71,24 @@ describe("generateHazardSpecs", () => {
       }
     }
     expect(sawWindmill).toBe(true);
+  });
+
+  it("eventually places a sandpit across RNG seeds", () => {
+    const tiles = straightTiles(18);
+    let sawSandpit = false;
+    for (let seed = 0; seed < 100; seed++) {
+      const specs = generateHazardSpecs(12, tiles, rngFixed(seed));
+      if (specs.some((s) => s.kind === "sandpit")) {
+        sawSandpit = true;
+        break;
+      }
+    }
+    expect(sawSandpit).toBe(true);
+  });
+
+  it("allows a larger hazard budget on late levels", () => {
+    const tiles = straightTiles(26);
+    const specs = generateHazardSpecs(20, tiles, rngSequence([0.99, 0.99], 0.99));
+    expect(specs).toHaveLength(5);
   });
 });

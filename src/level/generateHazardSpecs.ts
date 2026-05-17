@@ -115,6 +115,7 @@ export function generateHazardSpecs(
   let maxH = 2;
   if (levelIndex >= 10) maxH = 3;
   if (levelIndex >= 16) maxH = 4;
+  if (levelIndex >= 18) maxH = 5;
   maxH = Math.min(maxH, eligible.length);
 
   let budget: number;
@@ -129,7 +130,7 @@ export function generateHazardSpecs(
     }
   } else {
     const roll = Math.ceil(rng() * maxH);
-    budget = Math.max(2, roll);
+    budget = Math.max(levelIndex >= 18 ? 3 : 2, roll);
   }
 
   const used = new Set<number>();
@@ -200,8 +201,17 @@ export function generateHazardSpecs(
     });
   };
 
+  const pushSandpit = (tileIndex: number) => {
+    specs.push({
+      id: `hz-${levelIndex}-${tileIndex}-${specs.length}`,
+      kind: "sandpit",
+      tileIndex,
+      weight: hazardWeight("sandpit"),
+    });
+  };
+
   while (budget > 0 && pool.length > 0) {
-    if (budget >= 3) {
+    if (budget >= 3 && rng() < (levelIndex >= 10 ? 0.56 : 0.78)) {
       const want: 3 | 4 = rng() < 0.52 ? 3 : 4;
       const size = Math.min(want, budget, pool.length);
       if (size >= 3) {
@@ -227,10 +237,14 @@ export function generateHazardSpecs(
     const tileIndex = pool[0]!;
     used.add(tileIndex);
     pool = pool.filter((i) => i !== tileIndex);
-    const wantFan = levelIndex >= 4 && rng() < 0.32;
+    const wantSandpit =
+      levelIndex >= 5 && rng() < (levelIndex >= 12 ? 0.32 : 0.22);
+    const wantFan = !wantSandpit && levelIndex >= 4 && rng() < 0.32;
     const wantWindmill =
-      levelIndex >= 3 && !wantFan && rng() < 0.26;
-    if (wantFan) {
+      levelIndex >= 3 && !wantSandpit && !wantFan && rng() < 0.26;
+    if (wantSandpit) {
+      pushSandpit(tileIndex);
+    } else if (wantFan) {
       pushFan(tileIndex, (rng() > 0.5 ? 1 : -1) as 1 | -1);
     } else if (wantWindmill) {
       pushWindmill(tileIndex);

@@ -37,6 +37,11 @@ export class DragShotInput {
   private readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
   private readonly plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly ballCenterWorld = new THREE.Vector3();
+  private readonly ballEdgeWorld = new THREE.Vector3();
+  private readonly cameraRightWorld = new THREE.Vector3();
+  private readonly projectedCenter = new THREE.Vector3();
+  private readonly projectedEdge = new THREE.Vector3();
 
   private dragging = false;
   /** Latest pull vector on xz while dragging (world space, y unused). */
@@ -110,12 +115,41 @@ export class DragShotInput {
 
   private pointerNearBall(clientX: number, clientY: number): boolean {
     const hit = this.intersectLane(clientX, clientY);
-    if (!hit) return false;
+    if (!hit) return this.pointerNearVisibleBall(clientX, clientY);
     const ball = this.ctx.getBallWorld();
     const dx = hit.x - ball.x;
     const dz = hit.z - ball.z;
     const tapSlack = 2.2;
-    return dx * dx + dz * dz <= (this.ctx.ballRadius * tapSlack) ** 2;
+    if (dx * dx + dz * dz <= (this.ctx.ballRadius * tapSlack) ** 2) {
+      return true;
+    }
+    return this.pointerNearVisibleBall(clientX, clientY);
+  }
+
+  private pointerNearVisibleBall(clientX: number, clientY: number): boolean {
+    const b = this.ctx.getGameplayScreenBounds();
+    const ball = this.ctx.getBallWorld();
+    this.ballCenterWorld.set(ball.x, ball.y + this.ctx.ballRadius, ball.z);
+    this.projectedCenter.copy(this.ballCenterWorld).project(this.ctx.camera);
+    if (this.projectedCenter.z < -1 || this.projectedCenter.z > 1) {
+      return false;
+    }
+
+    this.cameraRightWorld.setFromMatrixColumn(this.ctx.camera.matrixWorld, 0);
+    this.ballEdgeWorld
+      .copy(this.ballCenterWorld)
+      .addScaledVector(this.cameraRightWorld, this.ctx.ballRadius);
+    this.projectedEdge.copy(this.ballEdgeWorld).project(this.ctx.camera);
+
+    const centerX = b.left + ((this.projectedCenter.x + 1) * b.width) / 2;
+    const centerY = b.top + ((1 - this.projectedCenter.y) * b.height) / 2;
+    const edgeX = b.left + ((this.projectedEdge.x + 1) * b.width) / 2;
+    const edgeY = b.top + ((1 - this.projectedEdge.y) * b.height) / 2;
+    const radiusPx = Math.hypot(edgeX - centerX, edgeY - centerY);
+    const tapRadiusPx = Math.max(28, radiusPx * 2.6);
+    const dx = clientX - centerX;
+    const dy = clientY - centerY;
+    return dx * dx + dy * dy <= tapRadiusPx * tapRadiusPx;
   }
 
   private updatePull(clientX: number, clientY: number): void {

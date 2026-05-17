@@ -49,7 +49,7 @@ function clampDifficultyInt(n: number): number {
 }
 
 function clampProgressionLevel(n: number): number {
-  return Math.max(1, Math.min(72, Math.round(n)));
+  return Math.max(1, Math.min(20, Math.round(n)));
 }
 
 function difficultyFromWeights(sum: number): number {

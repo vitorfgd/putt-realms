@@ -592,7 +592,7 @@ export class Game {
 
     this.hud.setLevel(this.generatedLevel.levelIndex);
     this.hud.setDifficultyRating(
-      this.generatedLevel.difficultyScore,
+      this.generatedLevel.targetDifficulty,
       this.generatedLevel.imperfectDifficulty,
     );
     const endpointReplay = readProcgenEndpointReplay(this.generatedLevel);

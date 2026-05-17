@@ -160,7 +160,7 @@ export interface GeneratedLevel {
   levelIndex: number;
   /** Computed integer difficulty 0-10 */
   difficultyScore: number;
-  /** Rounded target used for +/-1 matching */
+  /** Player-facing 20-step procgen difficulty target shown in the HUD. */
   targetDifficulty: number;
   /** True when no candidate landed within +/-1 after max attempts */
   imperfectDifficulty?: boolean;

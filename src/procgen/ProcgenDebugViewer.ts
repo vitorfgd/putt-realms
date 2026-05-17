@@ -561,10 +561,7 @@ export class ProcgenDebugViewer {
     let adapted: GeneratedLevel | null = null;
     const adaptBase = {
       levelIndex: td,
-      targetDifficultyRounded: Math.min(
-        10,
-        Math.max(0, Math.round(Number(map.difficulty) || td * 0.5)),
-      ),
+      targetDifficultyRounded: td,
       rng: () => Math.random(),
     };
     try {

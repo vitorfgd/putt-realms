@@ -32,7 +32,7 @@ import { buildRailColliders } from "./railColliders";
 
 export interface ProcgenAdaptOptions {
   levelIndex: number;
-  /** Integer difficulty target shown in HUD / skip pricing — mirrors legacy generator. */
+  /** Player-facing 20-step procgen difficulty target shown in HUD / overlays. */
   targetDifficultyRounded: number;
   rng: () => number;
   /**

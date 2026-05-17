@@ -387,6 +387,27 @@ describe("procgen pipeline", () => {
     expect(map.tiles[i]!.rotationY).toBeCloseTo(-Math.PI / 2, 4);
     expect(Math.abs(map.tiles[i]!.rotationY)).toBeLessThanOrEqual(Math.PI + 1e-6);
   });
+
+  it("keeps post-ramp straight walls off the ramp seam (putt-16 td=20)", () => {
+    const map = mapGenerationEndpoint.generateMap({
+      seed: "putt-16-v2-91de0972-99ec-463d-8b79-d585caef725a",
+      levelIndex: 20,
+      targetDifficulty: 20,
+      maxTiles: 16 + 20 * 5,
+      allowRamps: true,
+      allowCurves: true,
+    });
+    expectMapValid(map);
+    const path = map.debugInfo.gridPath as GridCell[];
+    const rampIndex = path.findIndex((c) => c.x === -2 && c.z === 9);
+    const straightIndex = path.findIndex((c) => c.x === -3 && c.z === 9);
+
+    expect(rampIndex).toBeGreaterThanOrEqual(0);
+    expect(straightIndex).toBeGreaterThanOrEqual(0);
+    expect(map.tiles[rampIndex]!.tileType).toBe("ramp_left_wall");
+    expect(map.tiles[straightIndex]!.tileType).toBe("straight_right_wall");
+    expect(map.tiles[straightIndex]!.rotationY).toBeCloseTo(Math.PI / 2, 4);
+  });
 });
 
 describe("legacy LevelGenerator", () => {

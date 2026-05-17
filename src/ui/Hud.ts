@@ -167,7 +167,7 @@ export class Hud {
   }
 
   setDifficultyRating(score: number, imperfect?: boolean): void {
-    this.elDifficulty.textContent = `DIFF ${score}/10`;
+    this.elDifficulty.textContent = `DIFF ${score}/20`;
     this.elDifficulty.classList.toggle(
       "hud-badge__meta--imperfect",
       !!imperfect,
@@ -185,7 +185,7 @@ export class Hud {
     const bits = [
       meta.seed ? `seed ${meta.seed}` : null,
       meta.progressionLevel !== undefined
-        ? `hole ${meta.progressionLevel}`
+        ? `difficulty ${meta.progressionLevel}`
         : null,
       meta.tileCount !== undefined ? `${meta.tileCount} tiles` : null,
       meta.turnCount !== undefined ? `${meta.turnCount} turns` : null,

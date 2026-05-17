@@ -1314,7 +1314,7 @@ body {
   justify-content: center;
   width: 100%;
   max-width: min(96%, 420px);
-  margin: clamp(-22px, -3.5vh, -8px) auto 6px;
+  margin: clamp(-82px, -9vh, -42px) auto clamp(28px, 4.4vh, 42px);
   pointer-events: none;
 }
 

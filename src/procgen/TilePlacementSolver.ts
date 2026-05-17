@@ -353,6 +353,61 @@ function occupiedNeighborIsRampStation(
   return rampDirByStation.has(ns);
 }
 
+function sideRunsAlongTravel(
+  side: { x: number; z: number },
+  travel: { x: number; z: number },
+): boolean {
+  return (
+    vecEq(side.x, side.z, travel.x, travel.z) ||
+    vecEq(side.x, side.z, -travel.x, -travel.z)
+  );
+}
+
+function laneOutwardSideForCell(
+  spine: GridCell[],
+  station: number,
+  travel: { x: number; z: number },
+  cell: GridCell,
+): { x: number; z: number } | undefined {
+  const spineAnchor = spine[station];
+  if (!spineAnchor) return undefined;
+  const lanePair = laneCellsForDir(spineAnchor, travel.x, travel.z);
+  if (cell.x === lanePair[1]!.x && cell.z === lanePair[1]!.z) {
+    return { x: travel.z, z: -travel.x };
+  }
+  if (cell.x === lanePair[0]!.x && cell.z === lanePair[0]!.z) {
+    return { x: -travel.z, z: travel.x };
+  }
+  return undefined;
+}
+
+function straightWallSideAvoidingRampSeam(
+  cell: GridCell,
+  primarySide: { x: number; z: number },
+  travel: { x: number; z: number },
+  spine: GridCell[],
+  station: number,
+  occupiedKeys: ReadonlySet<string>,
+  cellStation: Map<string, number>,
+  rampDirByStation: ReadonlyMap<number, "ascending" | "descending">,
+): { x: number; z: number } {
+  if (
+    sideRunsAlongTravel(primarySide, travel) &&
+    occupiedNeighborIsRampStation(
+      cell,
+      primarySide,
+      occupiedKeys,
+      cellStation,
+      rampDirByStation,
+    )
+  ) {
+    return (
+      laneOutwardSideForCell(spine, station, travel, cell) ?? primarySide
+    );
+  }
+  return primarySide;
+}
+
 function rotationForSingleWall(side: { x: number; z: number }): number {
   for (let k = 0; k < 4; k++) {
     const rotationY = (Math.PI / 2) * k;
@@ -634,7 +689,17 @@ function solveDoubleRowCurvedPath(
       }
     } else {
       tileType = "straight_right_wall";
-      rotationY = rotationForSingleWall(primarySide);
+      const wallSide = straightWallSideAvoidingRampSeam(
+        cell,
+        primarySide,
+        travel,
+        spinePath,
+        station,
+        occupiedKeys,
+        cellStation,
+        rampDirByStation,
+      );
+      rotationY = rotationForSingleWall(wallSide);
     }
 
     const def = getTileDefinition(tileType);
@@ -912,7 +977,17 @@ export function repairMisclassifiedFloorPlainAfterGridShift(
       }
     } else {
       tileType = "straight_right_wall";
-      rotationY = rotationForSingleWall(primarySide);
+      const wallSide = straightWallSideAvoidingRampSeam(
+        cell,
+        primarySide,
+        travel,
+        spine,
+        station,
+        occupiedKeys,
+        cellStation,
+        rampDirByStation,
+      );
+      rotationY = rotationForSingleWall(wallSide);
       railS = undefined;
     }
 

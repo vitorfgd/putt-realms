@@ -147,8 +147,8 @@ export class GameOverlays {
   showRoute(level: GeneratedLevel): void {
     const p = level.progressionSummary;
     if (!p) return;
-    const diff = level.difficultyScore;
-    const hole = p.level;
+    const diff = level.targetDifficulty;
+    const hole = level.levelIndex;
     this.routePanel.innerHTML = `
       <div class="realm-route" role="status" aria-live="polite">
         <div class="realm-route__frame">
@@ -165,7 +165,7 @@ export class GameOverlays {
           <div class="realm-route__text">
             <p class="realm-route__realm">${escapeHtml(p.realmName)}</p>
             <p class="realm-route__meta">
-              Hole <strong>${hole}</strong> · Difficulty <strong>${diff}/10</strong> · Par ${level.par}
+              Hole <strong>${hole}</strong> · Difficulty <strong>${diff}/20</strong> · Par ${level.par}
             </p>
           </div>
         </div>

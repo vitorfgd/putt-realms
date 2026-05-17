@@ -78,27 +78,36 @@ export function mulberry32(a: number): () => number {
 }
 
 const PROCGEN_RETRY_COUNT = 4;
-/** Procgen “run depth” cap — maps can scale past UI level index; HUD hole count is unbounded. */
-const MAX_PROCGEN_PROGRESSION_DEPTH = 72;
+const MAX_PROCGEN_DIFFICULTY_LEVEL = 20;
+const ENDGAME_PROCGEN_DIFFICULTIES = [18, 19, 20] as const;
 
-function procgenGameplayConfig(levelIndex: number): ProcgenGameplayConfig {
+function endgameProcgenDifficulty(rawLevel: number): number {
+  if (rawLevel <= MAX_PROCGEN_DIFFICULTY_LEVEL) return rawLevel;
+  const cycleIndex =
+    (rawLevel - MAX_PROCGEN_DIFFICULTY_LEVEL - 1) %
+    ENDGAME_PROCGEN_DIFFICULTIES.length;
+  return ENDGAME_PROCGEN_DIFFICULTIES[cycleIndex]!;
+}
+
+export function procgenGameplayConfig(levelIndex: number): ProcgenGameplayConfig {
   const li = Math.max(1, Math.round(levelIndex));
   /**
    * Endpoint solver target (not the same as map `difficulty` weights output).
    * Hole 1 stays at **0** for FTUE (tutorial branch). From hole 2 we start higher so
-   * the second map is already meaningfully harder, then step with depth.
+   * the second map is already meaningfully harder, then step with depth. After
+   * the 20-step ramp is complete, endless play cycles through 18, 19, and 20.
    */
+  const rawProgressionLevel = li <= 1 ? 0 : 6 + (li - 2);
   const progressionLevel =
-    li <= 1
+    rawProgressionLevel <= 0
       ? 0
-      : Math.min(MAX_PROCGEN_PROGRESSION_DEPTH, 6 + (li - 2));
+      : endgameProcgenDifficulty(rawProgressionLevel);
   const displayTargetDifficulty = clamp(
-    progressionLevel <= 0 ? 0 : Math.min(10, Math.round(progressionLevel)),
+    progressionLevel,
     0,
-    10,
+    MAX_PROCGEN_DIFFICULTY_LEVEL,
   );
-  const depth =
-    li <= 1 ? 1 : Math.min(progressionLevel, MAX_PROCGEN_PROGRESSION_DEPTH);
+  const depth = li <= 1 ? 1 : Math.max(1, progressionLevel);
   return {
     progressionLevel,
     displayTargetDifficulty,

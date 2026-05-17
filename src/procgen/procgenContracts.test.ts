@@ -96,6 +96,20 @@ describe("procgen placement contracts", () => {
     expect(map.debugInfo.matchedWithinOne).toBe(false);
   });
 
+  it("clamps out-of-range procgen difficulty requests to the authored cap", () => {
+    const map = mapGenerationEndpoint.generateMap({
+      seed: "vitest-clamp-difficulty-21",
+      levelIndex: 21,
+      targetDifficulty: 21,
+      maxTiles: 116,
+      allowRamps: true,
+      allowCurves: true,
+    });
+    const profile = map.debugInfo.progressionProfile as { level?: number };
+
+    expect(profile.level).toBe(20);
+  });
+
   it("exposes world rail sides and ramp surface support through the adapter", () => {
     let adapted:
       | ReturnType<typeof adaptProcgenMapToGeneratedLevel>
