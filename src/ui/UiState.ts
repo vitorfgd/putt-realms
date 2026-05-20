@@ -1,5 +1,6 @@
 import type { ProcgenEndpointReplayPayload } from "../procgen/MapGenerationTypes";
-import type { HudHintKind } from "./Hud";
+
+export type HudHintKind = "drag" | "release" | "rolling";
 
 export interface HudState {
   level: number;
