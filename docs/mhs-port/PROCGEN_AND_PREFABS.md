@@ -10,25 +10,43 @@ Full generator rules: [`../PROCGEN.md`](../PROCGEN.md).
 2. `validateGeneratedMap` gates layout/topology.
 3. `adaptProcgenMapToGeneratedLevel` -> `GeneratedLevel` (`tiles`, `surface`, `railColliders`, hazard specs, ...).
 4. `toGeneratedLevelV1` -> strict MHS interchange payload with debug maps removed.
-5. `createMhsSpawnManifest` -> prefab spawn intents keyed by `MHS_PREFAB_REGISTRY` without `TileKit` or Three scene objects.
+5. `createProcgenCourseSpawnV1` -> first-slice MHS course payload: tiles, deck-center transforms, spawn policy, template calibrations, surface patches, and rail colliders only.
+6. `createMhsSpawnManifest` -> prefab spawn intents keyed by `MHS_PREFAB_REGISTRY` without `TileKit` or Three scene objects.
 
 ## What to spawn (per hole)
 
-For each entry in `GeneratedLevelV1.tiles` (`PlacedTile`):
+For the first MHS slice, consume `ProcgenCourseSpawnV1` from `src/mhs/ProcgenCourseSpawnV1.ts`. It intentionally excludes hazards, collectibles, debug maps, and web-only procgen source maps.
+
+Read `coordinateSystem` and `spawnPolicy` first:
+
+- Set the MHS spawned entity root directly to `tiles[].position`.
+- Apply `tiles[].rotationY` to that entity root as yaw around +Y.
+- Do not apply asset pivot math in the spawner.
+- Keep import scale, pitch, and visual pivot correction inside the MHS template child, normally under `VisualRoot`.
+
+For each entry in `ProcgenCourseSpawnV1.tiles`:
 
 | Data | Spawn use |
 |------|-----------|
-| `type` | Gameplay tag (start/hole/straight/corner/floor/…) |
-| `worldX`, `worldY?`, `worldZ` | Entity **world position** (deck center) |
+| `tileType` | Gameplay tag (start/hole/straight/corner/floor/...) |
+| `position` | Entity **world position** (authoritative deck center) |
 | `rotationY` | Entity yaw |
-| `assetKeyOverride` | Select **which prefab** from catalog (`AssetKey`) |
+| `assetKey` / `templateId` | Select **which prefab/template** from catalog (`AssetKey`) |
 | `isRamp` | Surface patch kind + mesh variant |
-| `railWorldSides` / `railS` | Rail capsule generation (already resolved in `railColliders` for physics) |
+| `surfacePatchIndex` | Matching support patch in `surfacePatches[]` |
 | `stationIndex` | Correlate with designer debug / hazard spacing |
 
-**Rails**: Use precomputed `railColliders[]` as the authority for physics capsules in port (regenerate only if MHE colliders must differ).
+Future MHS scripts should bind each logical `templateId` to a static `TemplateAsset` declaration and spawn through `WorldService.spawnTemplate`. Do not build template paths dynamically from arbitrary strings.
 
-**Surface**: Instantiate supporting colliders/meshes from `surface.patches[]` (`flat` vs `ramp` with `lowY`/`highY`).
+`templateCalibrations[]` is the checklist for that binding: each used tile template must keep `rootPolicy = deck-center`, `unitScale = 1` at the spawn contract level, +Z forward, +Y up, and required template children such as `VisualRoot` and `Collider`.
+
+**Rails**: Use `ProcgenCourseSpawnV1.railColliders[]` as the authority for physics capsules in the first slice (regenerate only if MHS colliders must differ).
+
+**Surface**: Instantiate supporting colliders/meshes from `surfacePatches[]` (`flat` vs `ramp` with `lowY`/`highY`).
+
+`GeneratedMap.tiles[].deckPosition` is now the procgen source of truth for deck-center placement. `GeneratedMap.tiles[].position` remains the artist-pivot position for web/debug socket overlays only and should not be used for MHS spawning.
+
+Before attaching visuals in MHS, spawn temporary markers at every `tiles[].position`. If the markers form the expected course, procgen survived the port and any mismatch is template calibration.
 
 ## Order and path semantics
 
@@ -66,3 +84,4 @@ Safe template-friendly changes:
 Unsafe:
 
 - Letting an agent **re-layout sockets** on tile FBX without re-running full validation.
+

@@ -41,7 +41,7 @@ export interface TileDefinition {
    * Vector from **deck / lane origin** (center used by gameplay meshes) to **artist pivot** (top-left-most),
    * in unrotated tile-local space (+Z = forward along lane).
    *
-   * If meshes are re-exported with a different pivot, adjust only these offsets — gameplay stays anchor-based.
+   * If meshes are re-exported with a different pivot, adjust only these offsets — gameplay stays deck-center based.
    */
   pivotOffsetFromDeckOrigin: Vec3Like;
   /**
@@ -202,6 +202,41 @@ export function rotateFlatOffset(
     target.z = next.z;
   }
   return target;
+}
+
+/** deck_world + rotate(offset) === pivot_world. Used only for web/debug compatibility. */
+export function pivotWorldFromDeckCenter(
+  deck: Vec3Like,
+  rotationY: number,
+  def: TileDefinition,
+): Vec3Like;
+export function pivotWorldFromDeckCenter<T extends Vec3Target>(
+  deck: Vec3Like,
+  rotationY: number,
+  def: TileDefinition,
+  out: T,
+): T;
+export function pivotWorldFromDeckCenter(
+  deck: Vec3Like,
+  rotationY: number,
+  def: TileDefinition,
+  out?: Vec3Target,
+): Vec3Like {
+  const offset = rotateFlatOffsetPlain(def.pivotOffsetFromDeckOrigin, rotationY);
+  const next = {
+    x: deck.x + offset.x,
+    y: deck.y + offset.y,
+    z: deck.z + offset.z,
+  };
+  if (!out) return next;
+  if (out.set) {
+    out.set(next.x, next.y, next.z);
+  } else {
+    out.x = next.x;
+    out.y = next.y;
+    out.z = next.z;
+  }
+  return out;
 }
 
 /** deck_world + rotate(offset) === pivot_world */

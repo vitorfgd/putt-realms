@@ -1,10 +1,6 @@
 import * as THREE from "three";
 import type { Vec3Like } from "../core/math";
 import type { HazardSpawnSpec } from "../level/LevelTypes";
-import {
-  deckCenterWorldFromPivot,
-  getTileDefinition,
-} from "./TileCatalog";
 import { PROC_GEN_MODEL_TARGET_MAX_EXTENT } from "./procgenModelScale";
 import type { GeneratedMap, TileType } from "./MapGenerationTypes";
 
@@ -128,8 +124,7 @@ export function createDebugPlaceholderGroup(
 
   for (let i = 0; i < map.tiles.length; i++) {
     const t = map.tiles[i];
-    const def = getTileDefinition(t.tileType);
-    const deck = deckCenterWorldFromPivot(t.position, t.rotationY, def);
+    const deck = t.deckPosition;
     const color = TYPE_COLOR_HEX[t.tileType] ?? 0xcccccc;
     const mat = new THREE.MeshBasicMaterial({
       color,

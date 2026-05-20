@@ -9,6 +9,7 @@ MHS should consume these portable surfaces:
 | Surface | Purpose |
 | --- | --- |
 | `GeneratedLevelV1` | Strict level interchange payload with debug maps removed. |
+| `ProcgenCourseSpawnV1` | First-slice course spawn payload: tile template keys, deck-center transforms, coordinate/spawn policy, template calibration stubs, surface patches, and rail colliders. |
 | `createMhsSpawnManifest` | Pure prefab spawn intents from `GeneratedLevelV1`. |
 | `MHS_PREFAB_REGISTRY` | Asset key to future prefab planning metadata. |
 | `HAZARD_SIMULATION_CONTRACTS` / `evaluateHazardEffect` | Mesh-free hazard behavior contract. |

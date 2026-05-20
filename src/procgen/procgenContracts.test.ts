@@ -17,6 +17,74 @@ function fixedRng(): number {
 }
 
 describe("procgen placement contracts", () => {
+  const deckContractCases = [
+    {
+      name: "straight double-row",
+      request: {
+        seed: "vitest-mhs-deck-straight",
+        levelIndex: 5,
+        targetDifficulty: 5,
+        maxTiles: 46,
+        allowRamps: false,
+        allowCurves: false,
+      },
+    },
+    {
+      name: "curved double-row",
+      request: {
+        seed: "1778813885962-390489452",
+        levelIndex: 6,
+        targetDifficulty: 6,
+        maxTiles: 46,
+        allowRamps: true,
+        allowCurves: true,
+      },
+    },
+    {
+      name: "ramp-heavy double-row",
+      request: {
+        seed: "putt-16-v2-91de0972-99ec-463d-8b79-d585caef725a",
+        levelIndex: 20,
+        targetDifficulty: 20,
+        maxTiles: 116,
+        allowRamps: true,
+        allowCurves: true,
+      },
+    },
+    {
+      name: "portal-gap double-row",
+      request: {
+        seed: "1778371769655-643338418",
+        levelIndex: 17,
+        targetDifficulty: 17,
+        maxTiles: 116,
+        allowRamps: true,
+        allowCurves: true,
+      },
+    },
+  ] as const;
+
+  it.each(deckContractCases)(
+    "stores authoritative deck centers matching legacy pivot recovery: $name",
+    ({ request }) => {
+      const map = mapGenerationEndpoint.generateMap(request);
+      const path = map.debugInfo.gridPath as GridCell[];
+      const validation = validateGeneratedMap(map, path);
+      expect(validation.ok, validation.errors.join("; ")).toBe(true);
+
+      for (const tile of map.tiles) {
+        const recovered = deckCenterWorldFromPivot(
+          tile.position,
+          tile.rotationY,
+          getTileDefinition(tile.tileType),
+        );
+        expect(tile.deckPosition.x).toBeCloseTo(recovered.x, 5);
+        expect(tile.deckPosition.y).toBeCloseTo(recovered.y, 5);
+        expect(tile.deckPosition.z).toBeCloseTo(recovered.z, 5);
+      }
+    },
+  );
+
   it("keeps the recent z-fight seed on a 2x2 grass-base grid", () => {
     const map = mapGenerationEndpoint.generateMap({
       seed: "1778813885962-390489452",
@@ -32,13 +100,7 @@ describe("procgen placement contracts", () => {
     expect(TILE_WIDTH).toBe(TILE_LENGTH);
     expect(DOUBLE_ROW_SIDE_GAP).toBe(0);
 
-    const decks = map.tiles.map((tile) =>
-      deckCenterWorldFromPivot(
-        tile.position,
-        tile.rotationY,
-        getTileDefinition(tile.tileType),
-      ),
-    );
+    const decks = map.tiles.map((tile) => tile.deckPosition);
 
     for (let i = 0; i < decks.length; i++) {
       for (let j = i + 1; j < decks.length; j++) {

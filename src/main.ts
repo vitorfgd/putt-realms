@@ -29,8 +29,15 @@ const appRoot = document.querySelector<HTMLElement>("#app");
 const procgenDebug =
   typeof location !== "undefined" &&
   new URLSearchParams(location.search).has("procgenDebug");
+const straightTrace =
+  typeof location !== "undefined" &&
+  new URLSearchParams(location.search).has("straightTrace");
 
-if (procgenDebug) {
+if (straightTrace) {
+  void import("./procgen/straightPlacementTrace").then((m) =>
+    m.mountStraightPlacementTrace(),
+  );
+} else if (procgenDebug) {
   if (!canvas) {
     throw new Error("Missing #game canvas");
   }

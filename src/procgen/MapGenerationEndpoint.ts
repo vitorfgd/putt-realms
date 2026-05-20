@@ -7,7 +7,6 @@ import {
 } from "./GeneratedMapValidator";
 import type { GenerateMapRequest, GeneratedMap } from "./MapGenerationTypes";
 import {
-  deckCenterWorldFromPivot,
   getTileDefinition,
   rotateFlatOffset,
   TILE_LENGTH,
@@ -231,14 +230,15 @@ function repositionDeckTileFromGridCurved(
   pivotScratch: MutableVec3,
 ): void {
   const def = getTileDefinition(tile.tileType);
-  const elev = tile.position.y;
+  const elev = tile.deckPosition.y;
   deckScratch.set(
     (cell.x - gridCx) * TILE_LENGTH,
     elev,
     (cell.z - gridCz) * TILE_LENGTH,
   );
   rotateFlatOffset(def.pivotOffsetFromDeckOrigin, tile.rotationY, pivotScratch);
-  tile.position.copy(deckScratch).add(pivotScratch).add(worldExtra);
+  tile.deckPosition.copy(deckScratch).add(worldExtra);
+  tile.position.copy(tile.deckPosition).add(pivotScratch);
   tile.anchor.copy(tile.position);
 }
 
@@ -247,6 +247,7 @@ function cloneProcgenTile(
 ): GeneratedMap["tiles"][number] {
   return {
     ...src,
+    deckPosition: src.deckPosition.clone(),
     position: src.position.clone(),
     anchor: src.anchor.clone(),
   };
@@ -394,21 +395,9 @@ function computeStartHoleWorld(
 ): { start: MutableVec3; hole: MutableVec3 } {
   const first = tiles[0];
   const last = tiles[tiles.length - 1];
-  const def0 = getTileDefinition(first.tileType);
-  const defL = getTileDefinition(last.tileType);
-  const deck0 = deckCenterWorldFromPivot(
-    first.position,
-    first.rotationY,
-    def0,
-  );
-  const deckL = deckCenterWorldFromPivot(
-    last.position,
-    last.rotationY,
-    defL,
-  );
   void _path;
-  const start = new MutableVec3(deck0.x, deck0.y, deck0.z);
-  const hole = new MutableVec3(deckL.x, deckL.y, deckL.z);
+  const start = first.deckPosition.clone();
+  const hole = last.deckPosition.clone();
   return { start, hole };
 }
 
@@ -419,16 +408,8 @@ function computeStartHoleDoubleRow(
 ): { start: MutableVec3; hole: MutableVec3 } {
   void _spinePath;
   const pairCenter = (leftIndex: number): MutableVec3 => {
-    const a = deckCenterWorldFromPivot(
-      tiles[leftIndex].position,
-      tiles[leftIndex].rotationY,
-      getTileDefinition(tiles[leftIndex].tileType),
-    );
-    const b = deckCenterWorldFromPivot(
-      tiles[leftIndex + 1].position,
-      tiles[leftIndex + 1].rotationY,
-      getTileDefinition(tiles[leftIndex + 1].tileType),
-    );
+    const a = tiles[leftIndex].deckPosition;
+    const b = tiles[leftIndex + 1].deckPosition;
     return new MutableVec3(
       (a.x + b.x) / 2,
       (a.y + b.y) / 2,
@@ -561,6 +542,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
       const src = tiles[oldIndex]!;
       nextTiles.push({
         ...src,
+        deckPosition: src.deckPosition.clone(),
         position: src.position.clone(),
         anchor: src.anchor.clone(),
       });
@@ -580,12 +562,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
 
     const finalTileIndex = nextTiles.length - 1;
     const lastTile = nextTiles[finalTileIndex]!;
-    const finishDef = getTileDefinition(lastTile.tileType);
-    const finishDeck = deckCenterWorldFromPivot(
-      lastTile.position,
-      lastTile.rotationY,
-      finishDef,
-    );
+    const finishDeck = lastTile.deckPosition;
 
     const nextMap: GeneratedMap = {
       ...map,
@@ -704,7 +681,7 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
         const travel = travelIntoStation(spine, s);
         const lane = laneCellsForDir(spine[s]!, travel.x, travel.z);
         const elev =
-          (tiles[indices[0]!]!.position.y + tiles[indices[1]!]!.position.y) / 2;
+          (tiles[indices[0]!]!.deckPosition.y + tiles[indices[1]!]!.deckPosition.y) / 2;
         const deadDef = getTileDefinition("dead_end_cap");
 
         for (let pi = 0; pi < 2; pi++) {
@@ -722,10 +699,12 @@ class DefaultMapGenerationEndpoint implements MapGenerationEndpoint {
             (cell.z - gridCz) * TILE_LENGTH,
           );
           rotateFlatOffset(deadDef.pivotOffsetFromDeckOrigin, rotationY, pivotScratch);
-          pivotWorld.copy(deckScratch).add(pivotScratch).add(tw);
+          const deckWorld = deckScratch.clone().add(tw);
+          pivotWorld.copy(deckWorld).add(pivotScratch);
           mergedTiles.push({
             id: `${map.id}-dead-s${s}-p${pi}`,
             tileType: "dead_end_cap",
+            deckPosition: deckWorld,
             position: pivotWorld.clone(),
             rotationY: normalizeYawRad(rotationY),
             anchor: pivotWorld.clone(),

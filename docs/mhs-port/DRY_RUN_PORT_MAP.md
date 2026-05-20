@@ -6,7 +6,7 @@ This is a planning map for a future Meta Horizon Studio / Horizon Engine port. I
 
 | Bucket | Meaning | Current Source Areas |
 | --- | --- | --- |
-| `portable` | Keep as TypeScript/data-first source of truth for MHS consumption. | `src/core/math.ts`, `src/core/HoleSession.ts`, `src/level/GeneratedLevelV1.ts`, `src/hazards/HazardSimulationContract.ts`, `src/hazards/HazardRuntimeAdapter.ts`, `src/mhs/MhsSpawnManifest.ts`, `src/mhs/RenderWorldState.ts`, `src/mhs/PrefabRegistry.ts`, `src/mhs/GameEvents.ts`, procgen data contracts. |
+| `portable` | Keep as TypeScript/data-first source of truth for MHS consumption. | `src/core/math.ts`, `src/core/HoleSession.ts`, `src/level/GeneratedLevelV1.ts`, `src/hazards/HazardSimulationContract.ts`, `src/hazards/HazardRuntimeAdapter.ts`, `src/mhs/ProcgenCourseSpawnV1.ts`, `src/mhs/MhsSpawnManifest.ts`, `src/mhs/RenderWorldState.ts`, `src/mhs/PrefabRegistry.ts`, `src/mhs/GameEvents.ts`, procgen data contracts. |
 | `web-adapter` | Keep for the current web build; future MHS replaces the adapter, not the portable contract. | `src/core/Game.ts`, browser platform services, DOM HUD/overlays, WebAudio, `DragShotInput`, `CameraOrbitInput`, Vite/browser boot code. |
 | `web-debug-only` | Keep for web/editor QA only unless an MHS editor tool is intentionally designed later. | `ProcgenDebugViewer`, `DebugMapRenderer`, `SocketDebugHelpers`, procgen debug bootstrap, debug query/replay helpers. |
 | `future-mhs-replacement` | Replace with MHS templates/components/systems during the port. | `LevelBuilder`, `TileKit`, Three hazard instance classes, `Ball`, `ShotEffects`, `AimIndicator`, `CollectibleController`, runtime GLB/FBX loading, Three materials and scene graph helpers. |
@@ -15,9 +15,9 @@ This is a planning map for a future Meta Horizon Studio / Horizon Engine port. I
 
 ## Port Order
 
-1. Lock portable contracts: `GeneratedLevelV1`, hazard contracts, `HoleSession` commands/events, prefab registry metadata, and render-world state.
+1. Lock portable contracts: `ProcgenCourseSpawnV1`, `GeneratedLevelV1`, hazard contracts, `HoleSession` commands/events, prefab registry metadata, and render-world state.
 2. Create the static MHS scene bootstrap: `GameRoot`, `GameplayManager`, `Camera`, `HudRoot`, `AudioHub`, and `PersistenceAnchor`.
-3. Spawn imported templates from `MhsSpawnManifest` / `RenderWorldState` using stable `objectId` and `templateId`.
+3. Spawn imported templates: start with course tile templates from `ProcgenCourseSpawnV1`, using deck-center roots and debug markers before visuals; then broaden to `MhsSpawnManifest` / `RenderWorldState` using stable `objectId` and `templateId`.
 4. Wire gameplay/session updates: strokes, OOB recovery, skip flow, collectibles, hazard effects, completion, rewards, and telemetry intent.
 5. Replace web adapters last: UI rendering, audio, persistence, input, debug config, and telemetry ownership.
 

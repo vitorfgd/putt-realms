@@ -98,6 +98,20 @@ describe("MHS prefab registry", () => {
     }
   });
 
+  it("locks procgen tile templates to deck-center MHS spawn policy", () => {
+    for (const assetKey of Object.values(PROCGEN_TILE_TO_ASSET)) {
+      const entry = MHS_PREFAB_REGISTRY[assetKey];
+      expect(entry.pivotPolicy).toBe("deck-center");
+      expect(entry.forwardAxis).toBe("+Z");
+      expect(entry.upAxis).toBe("+Y");
+      expect(entry.unitScale).toBe(1);
+      expect(entry.requiredChildNames).toEqual(
+        expect.arrayContaining(["VisualRoot", "Collider"]),
+      );
+      expect(entry.debugOnly).toBe(false);
+    }
+  });
+
   it("maps every hazard kind to a prefab asset key", () => {
     expect(Object.keys(HAZARD_KIND_TO_PREFAB_ASSET).sort()).toEqual(
       Object.keys(HAZARD_WEIGHT).sort(),

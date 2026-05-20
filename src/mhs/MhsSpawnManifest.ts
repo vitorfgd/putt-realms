@@ -1,6 +1,7 @@
 import type { AssetKey } from "../art/AssetRegistry";
 import type { GeneratedLevelV1 } from "../level/GeneratedLevelV1";
 import { HAZARD_KIND_TO_PREFAB_ASSET, MHS_PREFAB_REGISTRY } from "./PrefabRegistry";
+import { createProcgenCourseSpawnV1 } from "./ProcgenCourseSpawnV1";
 import type { CameraState, RenderWorldState, WorldObjectState } from "./RenderWorldState";
 import { yawToQuat } from "./RenderWorldState";
 
@@ -28,20 +29,21 @@ export interface MhsLevelSpawnManifest {
 }
 
 export function createMhsSpawnManifest(level: GeneratedLevelV1): MhsLevelSpawnManifest {
+  const courseSpawn = createProcgenCourseSpawnV1(level);
   return {
     levelId: level.id,
-    tiles: level.tiles.map((tile, index) => {
-      const assetKey = tile.assetKeyOverride ?? "tile_floor_plain";
+    tiles: courseSpawn.tiles.map((tile) => {
+      const assetKey = tile.assetKey;
       return {
-        id: `tile-${index}`,
+        id: tile.id,
         assetKey,
         prefab: MHS_PREFAB_REGISTRY[assetKey].mhsPrefab,
-        objectId: `${level.id}:tile:${index}`,
-        templateId: assetKey,
+        objectId: tile.objectId,
+        templateId: tile.templateId,
         transform: {
-          x: tile.worldX,
-          y: tile.worldY ?? 0,
-          z: tile.worldZ,
+          x: tile.position.x,
+          y: tile.position.y,
+          z: tile.position.z,
           rotationY: tile.rotationY,
         },
       };

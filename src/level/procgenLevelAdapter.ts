@@ -8,10 +8,6 @@ import type {
   PortalLink,
 } from "../procgen/MapGenerationTypes";
 import { PROCGEN_TILE_TO_ASSET } from "../procgen/procgenAssetKeys";
-import {
-  deckCenterWorldFromPivot,
-  getTileDefinition,
-} from "../procgen/TileCatalog";
 import { bendOuterRailSigns } from "./bendOuterRails";
 import {
   flatProcgenPatch,
@@ -111,8 +107,7 @@ function toGameplayTile(
   next: GridCell | undefined,
   exposed: readonly { x: number; z: number }[],
 ): GamePlacedTile {
-  const def = getTileDefinition(pt.tileType);
-  const deck = deckCenterWorldFromPivot(pt.position, pt.rotationY, def);
+  const deck = pt.deckPosition;
 
   let type: GamePlacedTile["type"];
   let railS: GamePlacedTile["railS"];
@@ -213,8 +208,7 @@ function toGameplayTile(
 function buildProcgenSurface(map: GeneratedMap): CourseSurface {
   return {
     patches: map.tiles.map((pt) => {
-      const def = getTileDefinition(pt.tileType);
-      const deck = deckCenterWorldFromPivot(pt.position, pt.rotationY, def);
+      const deck = pt.deckPosition;
       if (pt.tileType === "ramp_right_wall" || pt.tileType === "ramp_left_wall") {
         return rampProcgenPatch(deck.x, deck.z, deck.y, pt.rotationY);
       }

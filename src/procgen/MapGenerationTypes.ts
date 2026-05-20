@@ -70,8 +70,12 @@ export interface Footprint {
 export interface PlacedTile {
   id: string;
   tileType: TileType;
+  /** Authoritative deck/lane center in world space. MHS and gameplay spawn from this transform. */
+  deckPosition: MutableVec3;
+  /** Artist-pivot world position kept for web/debug socket overlays. Do not use for MHS spawning. */
   position: MutableVec3;
   rotationY: number;
+  /** Legacy alias for the artist-pivot world position. */
   anchor: MutableVec3;
   entrySocket: SocketDirection;
   exitSocket: SocketDirection;

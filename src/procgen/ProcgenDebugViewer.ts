@@ -23,7 +23,6 @@ import { mapGenerationEndpoint } from "./MapGenerationEndpoint";
 import type { GeneratedMap } from "./MapGenerationTypes";
 import type { TileType } from "./MapGenerationTypes";
 import {
-  deckCenterWorldFromPivot,
   getTileDefinition,
   RAMP_HEIGHT,
   TILE_LENGTH,
@@ -586,7 +585,7 @@ export class ProcgenDebugViewer {
     this.debugOverlaysGroup.add(createDebugEndpointLabels(map));
 
     // Full-map tiles: use the same {@link buildTileGroup} + worldX/Z contract as {@link LevelBuilder}
-    // so meshes match overlays (deck from pivot math) and hazards. The old clone-only path
+    // so meshes match overlays (authoritative deck centers) and hazards. The old clone-only path
     // duplicated scaling/pivot steps and drifted from TileKit.
     if (adapted) {
       for (const gt of adapted.tiles) {
@@ -598,8 +597,7 @@ export class ProcgenDebugViewer {
       }
     } else {
       for (const t of map.tiles) {
-        const def = getTileDefinition(t.tileType);
-        const deck = deckCenterWorldFromPivot(t.position, t.rotationY, def);
+        const deck = t.deckPosition;
         const art = buildTileVisual(t.tileType);
         const piece = new THREE.Group();
         piece.position.set(deck.x, deck.y, deck.z);

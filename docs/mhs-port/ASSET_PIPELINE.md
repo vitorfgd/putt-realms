@@ -1,6 +1,6 @@
 # Asset pipeline (FBX / GLB) — port checklist
 
-Putt Realms loads authored meshes through a single web catalog: `src/art/AssetRegistry.ts` (`ASSET_FILENAMES`, `AssetKey`). The MHS-facing prefab manifest lives in `src/mhs/PrefabRegistry.ts`, and strict spawn intents are emitted by `src/mhs/MhsSpawnManifest.ts`.
+Putt Realms loads authored meshes through a single web catalog: `src/art/AssetRegistry.ts` (`ASSET_FILENAMES`, `AssetKey`). The MHS-facing prefab registry lives in `src/mhs/PrefabRegistry.ts`; first-slice procgen course spawns are emitted by `src/mhs/ProcgenCourseSpawnV1.ts`, and broader prefab intents remain in `src/mhs/MhsSpawnManifest.ts`.
 
 ## Path convention (web build)
 
@@ -23,6 +23,8 @@ Authoring rules are documented in [`../PROCGEN.md`](../PROCGEN.md) (artist pivot
 Summary:
 
 - Tile art aligns to **`TileCatalog`** footprints and pivot offsets; wrong pivots break socket continuity and rail placement.
+- `GeneratedMap.tiles[].deckPosition` is the authoritative course tile spawn position; artist pivots are a web/debug compatibility detail.
+- In MHS, the template entity root should be the deck center. Imported mesh scale, pitch, and pivot offsets should be applied to children under the template, not to the procgen spawn transform.
 - Current procgen tile prefab metadata records the source grass base as **200 x 200**, with walls outside the base.
 - Procgen scales models using `procgenModelScale` helpers--do not assume Blender units match world units without checking that pipeline.
 
@@ -39,7 +41,7 @@ New hazards should document **expected mesh origin** and **collision approximati
 ## Asset QA checklist (before marking port-ready)
 
 1. **Catalog**: Every spawn path has an `AssetKey` (or intentional fallback).
-2. **Pivot**: Deck center matches `PlacedTile.worldX/Y/Z` expectations after rotation.
+2. **Pivot**: Deck center matches `ProcgenCourseSpawnV1.tiles[].position` / `PlacedTile.worldX/Y/Z` expectations after rotation.
 3. **Scale**: Bounding box matches footprint after `scaleProcgenModelToWorldUnits` (procgen) or manual baseline in MHE.
 4. **Normals / facing**: Entry/exit face +Z local fairway where applicable.
 5. **Materials**: Single-file GLB preferred for Quickplay size constraints later; external `.bin` paths avoided.
@@ -66,4 +68,5 @@ The code-level backlog is `MHS_ASSET_OPTIMIZATION_BACKLOG`; it also tracks `scen
 ## Art output targets for MHS
 
 - One **prefab/template per logical variant** (straight, convex corner, ramp pair, each hazard).
+- Each course tile template keeps `VisualRoot` and `Collider` children and a deck-center root; use `ProcgenCourseSpawnV1.templateCalibrations[]` as the binding checklist.
 - Avoid runtime mesh booleans or AI-generated topology for course tiles; keep variation in **transform + data** ([`PROCGEN_AND_PREFABS.md`](./PROCGEN_AND_PREFABS.md)).

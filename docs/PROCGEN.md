@@ -48,10 +48,10 @@ MapGenerationEndpoint.generateMap()
       │
       └─ single_path ──────────► generateRandomPath()
                                       └─ solveTilesAlongPath()
-                                              └─ PlacedTile[] (pivot world positions)
+                                              └─ PlacedTile[] (deck-center placements + pivot compatibility)
       │
       ▼
-validateGeneratedMap()   — sanity-checks grid path + tile positions
+validateGeneratedMap()   — sanity-checks grid path + deck positions
       │
       ▼
 GeneratedMap  { tiles, startPosition, holePosition, cameraBounds, … }
@@ -224,7 +224,8 @@ Tile solver:  `TilePlacementSolver.solveDoubleRowStraightPath(cellCountZ, opts)`
 **Scale note:** the convex/concave FBX files may be authored as 2x2 source-art tiles, but
 runtime procgen still uses the existing world footprint (`TILE_LENGTH = 6`,
 `TILE_WIDTH = 6`). The model loader scales art into that footprint; gameplay spacing,
-physics, camera bounds, and pivot math are unchanged.
+physics, camera bounds, and deck-center placement are unchanged. Web pivot compatibility
+is derived from those deck centers.
 
 Grid layout (with one ramp row at z=2 as example):
 
@@ -341,7 +342,9 @@ pivotOffset = rotateFlatOffset(def.pivotOffsetFromDeckOrigin, rotationY)
 pivotWorld  = deckWorld + pivotOffset
 ```
 
-`pivotWorld` (including Y) is stored in `PlacedTile.position`.
+`deckWorld` (including Y) is stored in `PlacedTile.deckPosition` and is the authoritative
+spawn transform for gameplay and MHS handoff DTOs. `pivotWorld` is derived from it and stored
+in `PlacedTile.position` only for web rendering compatibility and socket debug overlays.
 
 ### Pivot world positions
 
@@ -360,17 +363,21 @@ Both tiles always share the same Z band.  The left tile's pivot is 6 units behin
 right tile's pivot — this is the "rotate 180° + move half-a-tile" relationship that
 manual pivot-based placement requires.  The deck-centre framework handles it automatically.
 
-### Recovering deck centre from pivot
+### Pivot/deck round trip
 
 ```typescript
 // TileCatalog.ts
 deckCenterWorldFromPivot(pivot, rotationY, def):
   offset = rotateFlatOffset(def.pivotOffsetFromDeckOrigin, rotationY)
   return pivot − offset
+
+pivotWorldFromDeckCenter(deck, rotationY, def):
+  offset = rotateFlatOffset(def.pivotOffsetFromDeckOrigin, rotationY)
+  return deck + offset
 ```
 
-The round-trip `deck → pivot → deck` is always exact regardless of which pivot offset is
-stored in the catalog.
+The round-trip `deck → pivot → deck` is kept exact for parity tests and web compatibility,
+but new engine handoffs should consume `deckPosition` directly.
 
 ### Difficulty
 
@@ -604,7 +611,7 @@ Key mapping:
 | `convex_right_wall` | `"corner"` |
 | `concave_right_wall` | `"corner"` |
 
-World positions are recovered via `deckCenterWorldFromPivot()` and stored as
+World positions are copied from `PlacedTile.deckPosition` and stored as
 `tile.worldX / tile.worldZ` (and `tile.worldY` when the deck is elevated). `LevelBuilder.buildInto()`
 places each tile's piece group at `(worldX, worldY ?? 0, worldZ)` with `rotation.y = rotationY`.
 
@@ -676,7 +683,8 @@ src/procgen/
 ├── MapGenerationEndpoint.ts      Entry point; mode dispatch; difficulty search
 ├── MapGenerationTypes.ts         TileType, SocketDirection, PlacedTile, GeneratedMap
 ├── TileCatalog.ts                TILE_CATALOG, pivot offsets, rotateFlatOffset,
-│                                 deckCenterWorldFromPivot, doubleRowDeckCenterX
+│                                 deckCenterWorldFromPivot, pivotWorldFromDeckCenter,
+│                                 doubleRowDeckCenterX
 ├── TilePlacementSolver.ts        solveDoubleRowStraightPath, solveTilesAlongPath,
 │                                 generateRandomPath, buildCollinearPath
 ├── GeneratedMapValidator.ts      validateGeneratedMap, computeCameraBoundsFromTiles
@@ -692,7 +700,7 @@ src/procgen/
 
 src/level/
 ├── islandDecorScatter.ts         Props on/near undermap slots (game + procgen debug)
-├── procgenLevelAdapter.ts        GeneratedMap → GeneratedLevel adapter (+ skipGameplayValidation)
+├── procgenLevelAdapter.ts        GeneratedMap → GeneratedLevel adapter; reads deckPosition
 ├── LevelBuilder.ts               Iterates tiles, creates piece groups at worldX/Z
 └── tiles/
     └── TileKit.ts                tryAttachTileModel: scale + centerModelOnDeckOrigin
@@ -801,8 +809,7 @@ the left lane.  Both slope upward in the +Z world direction.
 
 `TileDefinition` gained `exitElevationDelta: number` (0 for flat tiles, `RAMP_HEIGHT = 3`
 for ramp tiles).  The solver precomputes `rowElevation[z]` and stores the Y value in
-`PlacedTile.position.y`.  `deckCenterWorldFromPivot` propagates it correctly since
-`pivotOffsetFromDeckOrigin.y = 0` for all tiles.
+`PlacedTile.deckPosition.y`.  Web pivot placement is then derived from that deck center.
 
 **Y propagation through the pipeline**
 
@@ -810,7 +817,7 @@ for ramp tiles).  The solver precomputes `rowElevation[z]` and stores the Y valu
 |----------|--------|
 | `TileCatalog.ts` | Added `exitElevationDelta` field to `TileDefinition` and all catalog entries |
 | `TilePlacementSolver.ts` | Double-row: precompute `rowElevation[]`, bake into `deckScratch.y`. Single-path: `deckScratch.y = currentElevation`, increment by `def.exitElevationDelta` each step |
-| `MapGenerationEndpoint.ts` | Pass `{ allowRamps, rng }` to `solveDoubleRowStraightPath`; use `deck.y` in start/hole world positions |
+| `MapGenerationEndpoint.ts` | Pass `{ allowRamps, rng }` to `solveDoubleRowStraightPath`; use `deckPosition.y` in start/hole world positions |
 | `ProcgenDebugViewer.ts` | `piece.position.set(deck.x, deck.y, deck.z)` |
 | `LevelTypes.ts` | Added `worldY?: number` to `PlacedTile` |
 | `LevelBuilder.ts` | `piece.position.set(tile.worldX, tile.worldY ?? 0, tile.worldZ)` |

@@ -33,6 +33,7 @@ Do not port directly:
 MHS should consume plain data, not Three scene objects:
 
 - `GeneratedLevelV1`: strict gameplay level payload.
+- `ProcgenCourseSpawnV1`: first-slice procgen course payload for tiles, deck-center transforms, coordinate/spawn policy, template calibration stubs, surface patches, and rail colliders.
 - `MhsSpawnManifest`: level tiles, hazards, and collectibles as prefab spawn intents.
 - `RenderWorldState`: camera plus desired world object states.
 - `WorldObjectState`: stable `objectId`, stable `templateId`, transform, visibility, lifetime, replication, tags.
@@ -47,7 +48,13 @@ Every spawned object must separate:
 
 ## Template Contracts
 
-MHS template paths must be static declarations. Never construct future template paths dynamically.
+MHS template paths must be static `TemplateAsset` declarations. Never construct future template paths dynamically. Runtime spawning should resolve registry/template keys to those declarations and use `WorldService.spawnTemplate`.
+
+Course tile spawn rule:
+
+- Spawned entity root = `ProcgenCourseSpawnV1.tiles[].position` (deck center).
+- Entity yaw = `tiles[].rotationY` around +Y, in radians.
+- Template visual/pivot/pitch/import-scale correction belongs inside the template child hierarchy, not in procgen and not in the generic spawner.
 
 Each prefab registry entry now records planning metadata:
 
@@ -132,4 +139,3 @@ Persistence and leaderboard behavior should be server/authority owned. Client UI
 - Make web hazard implementations consume or mirror `evaluateHazardEffect` more directly.
 - Add negative validation tests for strict `GeneratedLevelV1` / spawn manifest error cases.
 - Keep the Vite large-chunk warning tracked until debug/render code splitting is worthwhile.
-

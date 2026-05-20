@@ -4,7 +4,6 @@ import type { UndermapIslandSlot } from "../level/undermapIslands";
 import type { GridCell } from "../level/pathGen";
 import { TILE_SIZE } from "../level/TileDimensions";
 import type { GeneratedMap, PlacedTile } from "./MapGenerationTypes";
-import { deckCenterWorldFromPivot, getTileDefinition } from "./TileCatalog";
 
 const ASSET_KEY = "undermap_island" as const;
 
@@ -105,8 +104,7 @@ function closestEdgeAdjacentRampDir(
     const oz = anchorGz + dz;
     const oc = byCell.get(cellKey(ox, oz));
     if (!oc || !isProcgenRampTile(oc.tile)) continue;
-    const def = getTileDefinition(oc.tile.tileType);
-    const d = deckCenterWorldFromPivot(oc.tile.position, oc.tile.rotationY, def);
+    const d = oc.tile.deckPosition;
     const wx = d.x - cx;
     const wz = d.z - cz;
     const dist = Math.hypot(wx, wz);
@@ -155,10 +153,7 @@ function enumerateProcgenFlatGridQuadsFromOccupancy(
     if (!c00 || !c10 || !c01 || !c11) continue;
 
     const quad = [c00, c10, c01, c11];
-    const decks = quad.map(({ tile: t }) => {
-      const def = getTileDefinition(t.tileType);
-      return deckCenterWorldFromPivot(t.position, t.rotationY, def);
-    });
+    const decks = quad.map(({ tile: t }) => t.deckPosition);
 
     let minY = Infinity;
     let maxY = -Infinity;

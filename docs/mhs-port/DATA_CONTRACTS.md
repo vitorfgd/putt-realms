@@ -24,6 +24,26 @@ The schema id is `putt-realms.generated-level.v1`.
 
 ---
 
+## `ProcgenCourseSpawnV1` (MHS first slice)
+
+`ProcgenCourseSpawnV1` lives in `src/mhs/ProcgenCourseSpawnV1.ts` and is the deck-center course spawn DTO for the first MHS port slice. Build it from `GeneratedLevelV1` with `createProcgenCourseSpawnV1(level)`.
+
+It includes only:
+
+- `coordinateSystem`: right-handed, +Y up, +Z forward, yaw around +Y in radians, positions in world meters.
+- `spawnPolicy`: entity root is the deck center, yaw applies to the entity root, scale/pivot correction belongs inside the MHS template child.
+- `tiles[]`: `assetKey`, `templateId`, deck-center `position`, `rotationY`, grid cell, station index, ramp flag, and `surfacePatchIndex`.
+- `templateCalibrations[]`: one entry per used tile template, with static template path, deck-center root policy, axis expectations, unit scale, and required child names.
+- `surfacePatches[]`: flat/ramp support patches aligned with tile order.
+- `railColliders[]`: rail capsule data for course collision.
+- bounds plus start/hole positions for framing/debug.
+
+It intentionally excludes hazards, collectibles, `procgenDebugInfo`, and `procgenSourceMap`. `createMhsSpawnManifest(level)` now routes tile spawns through this DTO before mapping keys to `MHS_PREFAB_REGISTRY`.
+
+Canonical fixture cases live in `src/mhs/ProcgenCourseSpawnFixtures.ts` for straight double-row, curved double-row, ramp-heavy, and portal-gap seeds. The fixture tests verify deterministic JSON round-trips, finite transforms, deck-center root policy, surface-patch alignment, and valid rail capsules.
+
+---
+
 ## `GeneratedLevel` (web gameplay hole)
 
 Logical aggregate produced by `adaptProcgenMapToGeneratedLevel` or legacy `LevelGenerator`.
@@ -204,11 +224,13 @@ Used inside TS generator; adapter converts to `GeneratedLevel`.
 
 | Field | Notes |
 |-------|--------|
+| `tiles[].deckPosition` | Authoritative deck/lane center used by gameplay and MHS-facing DTOs |
+| `tiles[].position` | Artist-pivot world position kept for web/debug socket overlays only |
 | `tiles` | Procgen `PlacedTile` with `tileType` enum (`straight_right_wall`, …) |
 | `debugInfo.gridPath` | Required for adapter |
 | `debugInfo.layout`, `spinePath` | Curved double-row |
 
-Porting **without** running TS procgen in-world: serialize **`GeneratedLevelV1`** as the interchange format.
+Porting **without** running TS procgen in-world: serialize **`ProcgenCourseSpawnV1`** for the tiles + colliders slice, or **`GeneratedLevelV1`** when later gameplay/hazard slices need the full level payload.
 
 ---
 
@@ -220,3 +242,4 @@ Porting **without** running TS procgen in-world: serialize **`GeneratedLevelV1`*
 - No `unknown` maps in shipping payloads
 
 Optional JSON Schema folder was suggested in the port plan; add when you start saving levels to disk or cloud.
+

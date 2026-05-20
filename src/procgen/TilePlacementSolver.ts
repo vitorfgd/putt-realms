@@ -147,6 +147,7 @@ function pushDoubleRowTile(
   tiles.push({
     id: params.id,
     tileType: params.tileType,
+    deckPosition: params.deck.clone(),
     position: pivotWorld.clone(),
     rotationY: normalizeYawRad(params.rotationY),
     anchor: pivotWorld.clone(),
@@ -772,7 +773,7 @@ function buildPortalRepairOccupancy(
   for (let i = 0; i < tiles.length; i++) {
     const st = tiles[i]?.stationIndex;
     if (typeof st !== "number" || st < 0 || st >= spine.length) continue;
-    elevationByStation[st] = tiles[i]!.position.y;
+    elevationByStation[st] = tiles[i]!.deckPosition.y;
   }
 
   const rampDirByStation = new Map<number, "ascending" | "descending">();
@@ -992,8 +993,15 @@ export function repairMisclassifiedFloorPlainAfterGridShift(
     }
 
     const def = getTileDefinition(tileType);
+    const pivotOffset = rotateFlatOffset(def.pivotOffsetFromDeckOrigin, rotationY);
     tile.tileType = tileType;
     tile.rotationY = normalizeYawRad(rotationY);
+    tile.position.set(
+      tile.deckPosition.x + pivotOffset.x,
+      tile.deckPosition.y + pivotOffset.y,
+      tile.deckPosition.z + pivotOffset.z,
+    );
+    tile.anchor.copy(tile.position);
     tile.entrySocket = def.entrySocket;
     tile.exitSocket = def.exitSocket;
     tile.modelKey = def.modelKey;
@@ -1017,8 +1025,8 @@ export function repairMisclassifiedFloorPlainAfterGridShift(
  *
  * ### Elevation
  * Each ramp row increments the running `currentElevation` by `RAMP_HEIGHT` for all
- * subsequent Z rows.  The Y value is baked into `PlacedTile.position.y` (= deck centre Y),
- * so downstream code (`ProcgenDebugViewer`, `LevelBuilder`) simply reads `deck.y`.
+ * subsequent Z rows.  The Y value is baked into `PlacedTile.deckPosition.y`,
+ * so downstream code (`ProcgenDebugViewer`, `LevelBuilder`, MHS DTOs) can spawn from deck centers.
  *
  * Grid path order is row-major: (0,z),(1,z) for each z.
  */
@@ -1083,7 +1091,7 @@ export function solveDoubleRowStraightPath(
     }
   }
 
-  // ── Precompute piece.position.y per Z row ────────────────────────────────
+  // ── Precompute deckPosition.y per Z row ─────────────────────────────────
   // For flat tiles: Y = currentElevation (bottom of tile = current floor).
   // For ascending ramps: Y = currentElevation (low end is the entry).
   // For descending ramps: Y = currentElevation − RAMP_HEIGHT (low end is the exit,
@@ -1171,8 +1179,8 @@ export function solveDoubleRowStraightPath(
     const def = getTileDefinition(tileType);
     const xDeck = doubleRowDeckCenterX(isRightLane);
     const zWorldBase = (z - cz) * TILE_LENGTH;
-    // Y = entry elevation of this tile row (baked into pivot so deckCenterWorldFromPivot
-    // correctly recovers the elevated deck centre downstream).
+    // Y = entry elevation of this tile row. deckPosition is the authoritative spawn transform;
+    // the pivot position is derived below only for web/debug compatibility.
     deckScratch.set(xDeck, elev, zWorldBase);
     rotateFlatOffset(def.pivotOffsetFromDeckOrigin, rotationY, pivotScratch);
     const pivotWorld = new MutableVec3().addVectors(deckScratch, pivotScratch);
@@ -1184,6 +1192,7 @@ export function solveDoubleRowStraightPath(
     tiles.push({
       id: `pg-2row-${z}-x${x}-${tileType}`,
       tileType,
+      deckPosition: deckScratch.clone(),
       position: pivotWorld.clone(),
       rotationY: normalizeYawRad(rotationY),
       anchor: pivotWorld.clone(),
@@ -1202,7 +1211,7 @@ export function solveDoubleRowStraightPath(
 }
 
 /**
- * Builds typed tiles + pivots for an existing cardinal grid path (no branches).
+ * Builds typed tiles + deck-centered spawn transforms for an existing cardinal grid path (no branches).
  */
 export function solveTilesAlongPath(
   path: GridCell[],
@@ -1275,6 +1284,7 @@ export function solveTilesAlongPath(
     tiles.push({
       id: `pg-${i}-${tileType}`,
       tileType,
+      deckPosition: deckScratch.clone(),
       position: pivotWorld.clone(),
       rotationY: normalizeYawRad(rotationY),
       anchor: pivotWorld.clone(),

@@ -1,5 +1,5 @@
 import type { GridCell } from "../level/pathGen";
-import { deckCenterWorldFromPivot, getTileDefinition, TILE_LENGTH } from "./TileCatalog";
+import { getTileDefinition, TILE_LENGTH } from "./TileCatalog";
 import type { Box3Like, GeneratedMap, PortalLink } from "./MapGenerationTypes";
 
 export interface ValidationResult {
@@ -309,6 +309,7 @@ export function validateGeneratedMap(
   }
 
   for (const t of map.tiles) {
+    if (!isFiniteVec(t.deckPosition)) errors.push(`NaN tile deckPosition ${t.id}`);
     if (!isFiniteVec(t.position)) errors.push(`NaN tile position ${t.id}`);
     if (!Number.isFinite(t.rotationY)) errors.push(`NaN rotation ${t.id}`);
   }
@@ -381,7 +382,7 @@ export function computeCameraBoundsFromTiles(
 
   for (const t of map.tiles) {
     const def = getTileDefinition(t.tileType);
-    const cxz = deckCenterWorldFromPivot(t.position, t.rotationY, def);
+    const cxz = t.deckPosition;
     const hw = def.footprint.halfWidth;
     const hl = def.footprint.halfLength;
     const c = Math.cos(t.rotationY);
