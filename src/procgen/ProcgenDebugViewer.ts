@@ -23,6 +23,10 @@ import { mapGenerationEndpoint } from "./MapGenerationEndpoint";
 import type { GeneratedMap } from "./MapGenerationTypes";
 import type { TileType } from "./MapGenerationTypes";
 import {
+  createProcgenDebugRequest,
+  normalizeProcgenDebugDifficulty,
+} from "./procgenDebugRequest";
+import {
   getTileDefinition,
   RAMP_HEIGHT,
   TILE_LENGTH,
@@ -60,11 +64,6 @@ export interface ProcgenDebugViewerOptions {
 
 function createDebugSeed(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-}
-
-function debugMaxTilesForDifficulty(targetDifficulty: number): number {
-  const level = Math.max(1, Math.min(20, Math.round(targetDifficulty)));
-  return 16 + level * 5;
 }
 
 function makeModelDoubleSided(root: THREE.Object3D): void {
@@ -531,26 +530,19 @@ export class ProcgenDebugViewer {
 
   private resolveDebugDifficulty(explicit?: number): number {
     if (explicit !== undefined && Number.isFinite(explicit)) {
-      return Math.max(1, Math.min(20, Math.round(explicit)));
+      return normalizeProcgenDebugDifficulty(explicit);
     }
     const fromUi = this.options.getTargetDifficulty?.();
     if (fromUi !== undefined && Number.isFinite(fromUi)) {
-      return Math.max(1, Math.min(20, Math.round(fromUi)));
+      return normalizeProcgenDebugDifficulty(fromUi);
     }
-    return 6;
+    return normalizeProcgenDebugDifficulty(undefined);
   }
 
   private showGeneratedMap(seed?: string, targetDifficulty?: number): string {
     const td = this.resolveDebugDifficulty(targetDifficulty);
     const s = seed ?? createDebugSeed();
-    const map = mapGenerationEndpoint.generateMap({
-      seed: s,
-      levelIndex: td,
-      targetDifficulty: td,
-      maxTiles: debugMaxTilesForDifficulty(td),
-      allowRamps: td >= 3,
-      allowCurves: td >= 2,
-    });
+    const map = mapGenerationEndpoint.generateMap(createProcgenDebugRequest(s, td));
 
     this.mode = "map";
     this.currentMap = map;
