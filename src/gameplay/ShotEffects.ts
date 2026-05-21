@@ -41,6 +41,7 @@ export class ShotEffects {
   private surface: CourseSurface | null = null;
   private squashTimer = 0;
   private trailTimer = 0;
+  private ballShadowEnabled = true;
 
   constructor(private readonly ball: Ball) {
     this.group.name = "ShotEffects";
@@ -59,6 +60,11 @@ export class ShotEffects {
 
   setSurface(surface: CourseSurface): void {
     this.surface = surface;
+  }
+
+  setBallShadowEnabled(enabled: boolean): void {
+    this.ballShadowEnabled = enabled;
+    if (!enabled) this.shadow.visible = false;
   }
 
   dispose(): void {
@@ -248,6 +254,10 @@ export class ShotEffects {
   }
 
   private updateShadow(): void {
+    if (!this.ballShadowEnabled) {
+      this.shadow.visible = false;
+      return;
+    }
     const support = this.surface
       ? sampleCourseSurface(this.surface, this.ball.position.x, this.ball.position.z)
       : null;

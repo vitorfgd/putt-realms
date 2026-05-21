@@ -152,10 +152,7 @@ export class GameCameraController {
   private readonly gameplayTarget = new THREE.Vector3();
   private readonly followIdeal = new THREE.Vector3();
   private readonly holeSpectatorPos = new THREE.Vector3();
-  private readonly holeFinishLookScratch = new THREE.Vector3();
   private readonly holeFinishCamCapturedPos = new THREE.Vector3();
-  private readonly holeFinishCamCapturedLookAt = new THREE.Vector3();
-  private readonly holeFinishFwdScratch = new THREE.Vector3();
   private readonly holeSpectatorPullTarget = new THREE.Vector3();
   private holeFinishCamCaptured = false;
   private readonly kickOffset = new THREE.Vector3();
@@ -276,14 +273,12 @@ export class GameCameraController {
   }
 
   /**
-   * Hole-out sequence: ease from the **actual** follow camera (smoothed behind the ideal pose)
-   * into a wide cup-side spectator frame, with a slight dolly toward the portal during the vortex.
+   * Hole-out sequence: ease from the current gameplay camera into a fixed cup-side spectator
+   * frame. The look target stays on the cup so the suction reads clearly while the ball spirals.
    */
   updateHoleFinishCinematic(
-    _deltaSeconds: number,
     hole: { x: number; y: number; z: number },
     start: { x: number; y: number; z: number },
-    ball: THREE.Vector3,
     levelCompleteTimer: number,
     vortex01: number,
   ): void {
@@ -294,22 +289,7 @@ export class GameCameraController {
     if (!this.holeFinishCamCaptured) {
       this.holeFinishCamCaptured = true;
       this.holeFinishCamCapturedPos.copy(this.camera.position);
-      this.camera.getWorldDirection(this.holeFinishFwdScratch);
-      this.holeFinishCamCapturedLookAt
-        .copy(this.camera.position)
-        .addScaledVector(this.holeFinishFwdScratch, 32);
     }
-    computeBallFollowCameraPose(
-      ball.x,
-      ball.z,
-      hp.x,
-      hp.z,
-      this.gameplayPos,
-      this.gameplayTarget,
-      ball.y,
-      this.yawOffset,
-      this.zoomScale,
-    );
     this.computeHoleSpectatorPose(hp, sx, sz, this.holeSpectatorPos);
     const zoom = clamp(this.zoomScale, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
     const vortexPull = smoothstep(0.22, 1, clamp(vortex01, 0, 1));
@@ -332,16 +312,7 @@ export class GameCameraController {
     );
     const cupLookY = hp.y + Ball.RADIUS * 0.42;
     this.gameplayTarget.set(hp.x, cupLookY, hp.z);
-    const lookBlend = smoothstep(
-      0,
-      HOLE_FINISH_CAM_BLEND_DURATION * 0.78,
-      levelCompleteTimer,
-    );
-    const lookEase = lookBlend * lookBlend * (3 - 2 * lookBlend);
-    this.holeFinishLookScratch
-      .copy(this.holeFinishCamCapturedLookAt)
-      .lerp(this.gameplayTarget, lookEase);
-    this.camera.lookAt(this.holeFinishLookScratch);
+    this.camera.lookAt(this.gameplayTarget);
   }
 
   /** Eye beside the cup along fairway normal — stable while the ball corkscrews in XZ. */

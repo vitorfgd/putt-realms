@@ -8,7 +8,7 @@ interface LiveCollectible {
   group: THREE.Group;
 }
 
-const COLLECTIBLE_SIZE_MUL = 1.22;
+const COLLECTIBLE_SIZE_MUL = 1.42;
 const COLLECTIBLE_FOOTPRINT_R = (value: number) => (0.31 + value * 0.026) * COLLECTIBLE_SIZE_MUL;
 
 /**
@@ -35,27 +35,6 @@ function boostCoinMaterials(root: THREE.Object3D): void {
   });
 }
 
-/** Flat additive ring — reads from above / orbit cam without fighting the GLB silhouette */
-function addPickupGroundHalo(parent: THREE.Group, radius: number): void {
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(radius * 0.42, radius * 1.05, 32),
-    new THREE.MeshBasicMaterial({
-      color: 0xffee99,
-      transparent: true,
-      opacity: 0.5,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    }),
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.018;
-  ring.renderOrder = 1;
-  ring.name = "CollectibleGroundHalo";
-  parent.add(ring);
-}
-
 /**
  * In-world coin pickups: {@link AssetRegistry} `coin` GLB when loaded, else {@link createCoinMesh}.
  */
@@ -66,7 +45,6 @@ function buildPickupCoinGroup(value: number): THREE.Group {
     const g = createCoinMesh(value);
     g.scale.multiplyScalar(COLLECTIBLE_SIZE_MUL);
     boostCoinMaterials(g);
-    addPickupGroundHalo(g, footprintR);
     return g;
   }
   const wrap = new THREE.Group();
@@ -82,7 +60,6 @@ function buildPickupCoinGroup(value: number): THREE.Group {
   const grounded = new THREE.Box3().setFromObject(clone);
   clone.position.y -= grounded.min.y;
   boostCoinMaterials(wrap);
-  addPickupGroundHalo(wrap, footprintR);
   return wrap;
 }
 
@@ -134,12 +111,12 @@ export class CollectibleController {
     const t = performance.now() * 0.001;
     for (const item of this.live) {
       if (item.spec.collected) continue;
-      item.group.rotation.y += deltaSeconds * 3.35;
-      const pulse = 1 + 0.11 * Math.sin(t * 3.15 + item.spec.tileIndex * 0.73);
+      item.group.rotation.y += deltaSeconds * 4.9;
+      const pulse = 1 + 0.18 * Math.sin(t * 4.6 + item.spec.tileIndex * 0.73);
       item.group.scale.setScalar(pulse);
       item.group.position.y =
         item.spec.y +
-        Math.sin(performance.now() * 0.0048 + item.spec.tileIndex) * 0.12;
+        Math.sin(performance.now() * 0.006 + item.spec.tileIndex) * 0.2;
     }
   }
 

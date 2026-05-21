@@ -944,7 +944,7 @@ body {
   position: absolute;
   z-index: 1;
   left: 50%;
-  top: 22%;
+  top: 17%;
   transform: translateX(-50%);
   font-size: clamp(6px, 1.45vw, 10px);
   font-weight: 900;
@@ -979,7 +979,7 @@ body {
   position: absolute;
   z-index: 1;
   left: 50%;
-  top: 21%;
+  top: 16%;
   transform: translateX(-50%);
   font-size: clamp(6px, 1.5vw, 10px);
   font-weight: 900;
@@ -1262,6 +1262,10 @@ body {
   max-width: min(92vw, 520px);
   padding: 12px;
   filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.55));
+}
+
+.hud-callout--lower .hud-callout__wrap {
+  transform: translateY(25vh);
 }
 
 .hud-callout__img {

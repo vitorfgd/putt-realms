@@ -284,6 +284,7 @@ export class Game {
 
     this.run.onPhaseChange((phase) => {
       this.audio.syncForPhase(phase, this.currentLevelIndex);
+      this.shotEffects.setBallShadowEnabled(phase !== RunPhase.LevelComplete);
       if (phase === RunPhase.PreviewCamera) {
         this.previewTimer = this.cameraController.previewDuration();
       }
@@ -1105,9 +1106,6 @@ export class Game {
       if (surfaceBump || hazardHit) {
         this.audio.playBallBump();
       }
-      if (surfaceBump) {
-        this.shotEffects.onRailBump();
-      }
       if (hazardHit) {
         this.holeStats.hazardHits++;
         this.flashHazardHit();
@@ -1234,9 +1232,6 @@ export class Game {
         if (!this.holePoofPlayed) {
           this.holePoofPlayed = true;
           this.ball.resetVisual();
-          this.shotEffects.onHolePoof(
-            new THREE.Vector3(hp.x, hp.y + Ball.RADIUS * 0.4, hp.z),
-          );
         }
         const u = (t - vortexEnd) / (shrinkEnd - vortexEnd);
         this.ball.position.set(
@@ -1286,13 +1281,6 @@ export class Game {
           }
           this.hud.setCoins(this.economy.getCoins());
 
-          const holeConfettiPos = new THREE.Vector3(
-            hp.x,
-            hp.y + Ball.RADIUS * 0.25,
-            hp.z,
-          );
-          this.shotEffects.onHoleScore(holeConfettiPos);
-
           window.clearTimeout(this.holeSummaryTimer);
           const calloutMs = this.hud.presentHoleFinishCallout({
             holeInOne: hio,
@@ -1341,9 +1329,10 @@ export class Game {
       }
     }
 
+    const renderPhase = this.run.getPhase();
     const preview = this.input.getShotPreview();
     if (
-      phase === RunPhase.Aiming &&
+      renderPhase === RunPhase.Aiming &&
       this.input.isAiming() &&
       preview
     ) {
@@ -1358,13 +1347,13 @@ export class Game {
       this.hud.setPowerMeter(null);
     }
 
-    if (phase === RunPhase.BallInFlight) {
+    if (renderPhase === RunPhase.BallInFlight) {
       this.hud.setHint("rolling");
-    } else if (phase === RunPhase.Aiming) {
+    } else if (renderPhase === RunPhase.Aiming) {
       this.hud.setHint("release");
     } else if (
-      phase === RunPhase.AwaitingShot ||
-      phase === RunPhase.ResolvingOOB
+      renderPhase === RunPhase.AwaitingShot ||
+      renderPhase === RunPhase.ResolvingOOB
     ) {
       this.hud.setHint("drag");
     } else {
@@ -1376,21 +1365,19 @@ export class Game {
       this.generatedLevel.par,
     );
     this.hud.setCoins(this.economy.getCoins());
-    this.updateSkipUi(phase);
+    this.updateSkipUi(renderPhase);
 
     if (
-      phase !== RunPhase.PreviewCamera &&
-      phase !== RunPhase.TransitioningCamera
+      renderPhase !== RunPhase.PreviewCamera &&
+      renderPhase !== RunPhase.TransitioningCamera
     ) {
-      if (phase === RunPhase.LevelComplete) {
+      if (renderPhase === RunPhase.LevelComplete) {
         const hp = this.generatedLevel.holePosition;
         const sp = this.generatedLevel.startPosition;
         const vortex01 = Math.min(1, this.levelCompleteTimer / HOLE_VORTEX_DURATION);
         this.cameraController.updateHoleFinishCinematic(
-          deltaSeconds,
           hp,
           sp,
-          this.ball.position,
           this.levelCompleteTimer,
           vortex01,
         );
@@ -1408,7 +1395,7 @@ export class Game {
       );
     }
 
-    this.prevPhase = phase;
+    this.prevPhase = renderPhase;
 
     this.renderGameplayViewport();
 

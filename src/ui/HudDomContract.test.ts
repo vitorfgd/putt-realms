@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const indexHtml = readFileSync("index.html", "utf8");
+const hudSource = readFileSync("src/ui/Hud.ts", "utf8");
 const overlaySource = readFileSync("src/ui/GameOverlays.ts", "utf8");
 
 describe("web UI DOM contract", () => {
@@ -56,5 +57,12 @@ describe("web UI DOM contract", () => {
     expect(overlaySource).toContain("escapeHtml(p.trim())");
     expect(overlaySource).toContain("ftue-panel");
     expect(overlaySource).toContain("run-summary");
+  });
+
+  it("keeps the web leaderboard free of fake ranked players and the old subheading", () => {
+    expect(hudSource).not.toContain("Highest Level");
+    expect(hudSource).not.toContain("fakeLeaderboardRows");
+    expect(hudSource).not.toContain("Mira");
+    expect(hudSource).not.toContain("Bram");
   });
 });

@@ -91,7 +91,18 @@ export class Hud {
       e.stopPropagation();
       this.hideLeaderboard();
     });
-    this.elLeaderboardShade.addEventListener("click", () => this.hideLeaderboard());
+    this.elLeaderboardPanel.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (!target.closest(".hud-leaderboard__card")) {
+        e.preventDefault();
+        this.hideLeaderboard();
+      }
+    });
+    this.elLeaderboardShade.addEventListener("click", (e) => {
+      e.preventDefault();
+      this.hideLeaderboard();
+    });
     const lbNormal = publicUrl("assets/ui/leaderboard_button.png");
     const lbPressed = publicUrl("assets/ui/leaderboard_button_pressed.png");
     const lbImg = this.elLeaderboardBtn.querySelector("img");
@@ -275,7 +286,13 @@ export class Hud {
 
   showOutOfBounds(): void {
     const durationMs = 760;
-    this.showCallout(CALLOUT_SPRITES.outOfBounds, "OUT OF BOUNDS", durationMs);
+    this.showCallout(
+      CALLOUT_SPRITES.outOfBounds,
+      "OUT OF BOUNDS",
+      durationMs,
+      undefined,
+      "center",
+    );
   }
 
   /** Temporary reward / promo line (e.g. free skip). */
@@ -314,6 +331,7 @@ export class Hud {
     window.clearTimeout(this.calloutTimer);
     this.calloutTimer = 0;
     this.elCallout.classList.add("hud-callout--hidden");
+    this.elCallout.classList.remove("hud-callout--lower");
     this.elCalloutImg.removeAttribute("src");
     this.elCalloutImg.classList.add("hud-callout__img--hidden");
     this.elCalloutFallback.textContent = "";
@@ -341,8 +359,8 @@ export class Hud {
 
   private renderLeaderboard(): void {
     const level = this.currentLevel;
-    this.elLeaderboardLevel.textContent = `Level ${level}`;
-    const rows = fakeLeaderboardRows(level);
+    this.elLeaderboardLevel.textContent = "";
+    const rows = currentPlayerLeaderboardRows(level);
     this.elLeaderboardList.replaceChildren(
       ...rows.map((row, index) => {
         const item = document.createElement("li");
@@ -359,7 +377,7 @@ export class Hud {
 
         const score = document.createElement("span");
         score.className = "hud-leaderboard__score";
-        score.textContent = `${row.strokes}`;
+        score.textContent = `${row.score}`;
 
         item.append(rank, name, score);
         return item;
@@ -374,8 +392,10 @@ export class Hud {
     onEnd: () => void = () => {
       this.hideCallout();
     },
+    placement: "center" | "lower" = "lower",
   ): void {
     window.clearTimeout(this.calloutTimer);
+    this.elCallout.classList.toggle("hud-callout--lower", placement === "lower");
     this.elCalloutFallback.textContent = fallbackText;
     this.elCalloutFallback.classList.remove("hud-callout__fallback--hidden");
     this.elCalloutImg.classList.add("hud-callout__img--hidden");
@@ -421,35 +441,13 @@ function requireEl(root: HTMLElement, id: string): HTMLElement {
   return el as HTMLElement;
 }
 
-function fakeLeaderboardRows(
+function currentPlayerLeaderboardRows(
   level: number,
-): { name: string; strokes: number; you?: boolean }[] {
-  const names = [
-    "Mira",
-    "Bram",
-    "Vesper",
-    "Jun",
-    "Sol",
-    "Nyx",
-    "Pip",
-    "Ari",
-  ];
-  const basePar = 2 + Math.floor((level % 7) / 2);
-  const rows: { name: string; strokes: number; you?: boolean }[] = names
-    .slice(0, 6)
-    .map((name, index) => {
-      const wobble = (level * (index + 3) + index * 5) % 4;
-      return {
-        name,
-        strokes: Math.max(1, basePar + index + wobble - 1),
-      };
-    });
-  rows.push({
+): { name: string; score: number; you?: boolean }[] {
+  const bestLevel = Math.max(1, Math.round(level));
+  return [{
     name: "You",
-    strokes: Math.max(1, basePar + ((level * 3) % 5)),
+    score: bestLevel,
     you: true,
-  });
-  return rows.sort(
-    (a, b) => a.strokes - b.strokes || a.name.localeCompare(b.name),
-  );
+  }];
 }

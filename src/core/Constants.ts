@@ -184,8 +184,8 @@ export const CAM_ORBIT_YAW_MAX = Math.PI * 1.15;
 /** Camera / flow timings (seconds) */
 export const PREVIEW_CAMERA_DURATION = 1.32;
 export const GAMEPLAY_CAMERA_BLEND_DURATION = 0.82;
-/** Lerp from ball-follow to cup spectator cam at hole-out (see GameCameraController) */
-export const HOLE_FINISH_CAM_BLEND_DURATION = 0.58;
+/** Fast handoff from ball-follow to a cup-side spectator cam at hole-out. */
+export const HOLE_FINISH_CAM_BLEND_DURATION = 0.22;
 /** Ball corkscrew “vacuum slurp” into cup — comic beat before poof */
 export const HOLE_VORTEX_DURATION = 0.78;
 /** Quick shrink after poof VFX */
