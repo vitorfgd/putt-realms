@@ -2,6 +2,8 @@
 
 Canonical shapes used to describe a **playable hole** after procgen + adaptation. Source types live in `src/level/LevelTypes.ts`, `src/level/GeneratedLevelV1.ts`, `src/hazards/HazardTypes.ts`, `src/hazards/HazardSimulationContract.ts`, and procgen types in `src/procgen/MapGenerationTypes.ts`.
 
+Current Studio runtime DTOs now live under `putt_realms/scripts/puttrealms/procgen`. The Studio `ProcgenCourseSpawnV1` extends the older web first-slice idea with hazards, undermap island slots, decor spawns, tutorial flag, and replay metadata. Use `putt_realms/Docs/MANUS_AI_OPERATING_GUIDE.md` for current MHS agent work.
+
 ## Principles
 
 1. **Identifiers**: Renaming fields below requires a **migration note** and dual-read period if saved levels exist.
@@ -173,6 +175,24 @@ Replication intent:
 ## Game events
 
 `src/mhs/GameEvents.ts` defines serializable event intent for future audio, UI, persistence, and telemetry adapters. Events should remain plain JSON-compatible data. Future MHS audio should map stable sound IDs to named AudioHub children or template-local sound components.
+
+---
+
+## Studio UI overlay state notes
+
+The active Studio UI state lives under `putt_realms/scripts/puttrealms/ui/UiState.ts`.
+
+Recent run summary fields:
+
+| Field | Purpose |
+|-------|---------|
+| `RunSummaryState.level` | Player-facing level label rendered as `LEVEL X` under the summary header. |
+| `RunSummaryState.coinsBalance` | Current coin balance used by the summary `hud_topbar_coins.png` badge. |
+| `RunSummaryTreasureChestState.rewardCoins` | Chest payout shown as an optional summary row and animated into the coin badge. |
+
+Treasure chest behavior is currently a simple three-game loop with a tunable `40` coin reward on unlock. Unlocking resets saved chest progress to zero and does not require a click.
+
+Keep UI contracts data-only: Yip expression IDs, summary counts, store coin counts, and loading progress should stay serializable so the same state can feed future MHS UI bindings.
 
 ---
 

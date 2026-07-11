@@ -2,6 +2,8 @@
 
 This handoff updates the Putt Realms port plan with the 3D Meta Horizon Studio guides. The target remains a 3D prefab/entity port. Do not rewrite gameplay as a 2D DrawingSurface game.
 
+This does not mean AI should author shipping 3D. For current agent work, AI should generate 2D/UI art directly when safe, treat 3D meshes as candidate assets, and hand off exact replacement paths when import/template/collision validation is not available.
+
 MHS API names in this document are planning labels from the team guides. Verify exact names and signatures against the current MHS documentation before implementation.
 
 ## Target MHS Shape
@@ -114,6 +116,13 @@ Recommended MHS systems/components:
 | `UiBridge` | Bind `HudState` / `OverlayState` to screen UI view models. |
 | `AudioService` | Map sound IDs to `AudioHub` child sound entities and template-local sounds. |
 | `PersistenceService` | Server-owned save, economy, cosmetics, quests, leaderboard flow. |
+
+Current Studio runtime notes from May 26, 2026:
+
+- `UiBridge` must support animated summary/store coin badges using `hud_topbar_coins.png`, treasure chest progress, chest unlock coin flights, and `NEXT LEVEL LOADING` / `NEXT LEVEL READY`.
+- `UiBridge` must support Yip as a reusable UI character layer: FTUE portrait/name, loading tips, loading-logo peeks, and run-summary peeks.
+- `CameraSystem` should preserve the slower opening overview (`1.15s`) and temporary preview FOV boost before returning to gameplay FOV.
+- `PersistenceService` must treat treasure chest progress as reset-on-unlock and include the chest reward in the saved coin balance.
 
 AudioHub planned sound IDs:
 

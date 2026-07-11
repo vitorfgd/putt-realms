@@ -1,6 +1,8 @@
 # Manus / AI agent boundaries (Putt Realms → MHS)
 
-Experience shows **3D authoring by general-purpose AI** (including tools marketed for Horizon workflows) often corrupts pivots, scale, collision, or scene hierarchy. This project **does not** rely on AI for mesh truth—only for **data**, **documentation**, and **carefully scoped scripts**.
+Experience shows **3D authoring by general-purpose AI** (including tools marketed for Horizon workflows) often corrupts pivots, scale, collision, or scene hierarchy. This project **does not** rely on AI for mesh truth. AI is useful for **data**, **documentation**, **2D/UI art**, **validated rule/code changes**, and **carefully scoped scripts**.
+
+Current Studio-facing AI guidance now lives in `putt_realms/Docs/AI_AGENT_CAPABILITIES.md` and `putt_realms/Docs/MANUS_AI_OPERATING_GUIDE.md`. Treat this web-port document as historical port-planning context when the two disagree.
 
 ## Goals
 
@@ -13,8 +15,10 @@ Experience shows **3D authoring by general-purpose AI** (including tools markete
 | Task | Guardrails |
 |------|------------|
 | Edit markdown under `docs/` | Human review before treating as spec |
+| Generate or replace **2D/UI PNGs** | Register texture IDs and verify portrait layout |
 | Generate **JSON / tables** from existing types | Validate with schema or TS compile |
 | Tune **constants** (economy, audio volumes, drag limits) | Playtest + unit constraints |
+| Change **game rules** through typed code/data | Update runtime, UI/audio feedback, docs, and tests together |
 | Add **telemetry fields** | Must not break deserialization |
 | Refactor **pure functions** (math helpers) | Tests / deterministic procgen seeds |
 | Draft **MHE component skeletons** | Must compile against **your** pinned SDK; human verifies imports |
@@ -29,6 +33,7 @@ Experience shows **3D authoring by general-purpose AI** (including tools markete
 | Redesign tile sockets without **TileCatalog** + validator updates | Breaks continuity |
 | Edit **physics + surface + rails** together without golden tests | Subtle OOB / tunneling |
 | Procedural replacement of **course tile meshes** for shipping | Conflicts with authored art strategy |
+| Calling generated audio final without listening in context | Mix/readability risk |
 
 ## Recommended workflow when using Manus
 
@@ -36,6 +41,7 @@ Experience shows **3D authoring by general-purpose AI** (including tools markete
 2. **Artifact**: Require output as **diff or data file**, not a binary `.fbx`.
 3. **Verify**: Run web build (`npm run build`) or MHE compile; run procgen debug seed replay if touching generation.
 4. **Escalate**: Any collision/visual change touches **human artist + engineer** pair review.
+5. **Handoff**: For 3D or audio that cannot be validated, provide the exact replacement file path, registry key, stable audio ID, and validation checklist.
 
 ## Alignment with Meta “AI Template” idea
 

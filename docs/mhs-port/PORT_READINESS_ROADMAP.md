@@ -40,6 +40,8 @@ These modules are implementation details of the current web prototype:
 
 The final target is a 3D MHS runtime with a static bootstrap scene plus spawned templates:
 
+This target still relies on human-verified imported templates for shipping 3D. AI-generated 2D/UI art is acceptable when registered and layout-checked; generated 3D/audio should stay candidate or handoff work until validated.
+
 - `space.hstf`: static world bootstrap.
 - `GameRoot` / `GameplayManager`: startup, system construction, update orchestration, UI/audio/persistence wiring.
 - `Camera`: custom gameplay camera host.
@@ -59,6 +61,14 @@ MHS API names from the team guides, such as `WorldService`, `TemplateAsset`, `Ne
 5. **Asset cleanup**: six oversized GLB textures are compressed to 1024px JPEG quality 72; visually review them in-game, then confirm whether `scene.bin` is still needed.
 6. **Bundle hygiene**: split web debug/render-only modules from the production bundle when the main chunk warning becomes a release concern.
 7. **Runtime architecture handoff**: keep `FINAL_3D_PORT_HANDOFF.md` current with static scene, template child names, replication intent, pooling, async spawn safety, AudioHub, UI bridge, and persistence ownership.
+
+## Recent Studio Runtime Slice (2026-05-26)
+
+- UI polish: realm-screen-backed loading/summary, compact run summary rows, `LEVEL X` summary label, `hud_topbar_coins.png` summary/store coin badges, larger next-level loading text, and treasure chest progress/unlock presentation.
+- Economy/progression: treasure chest progress increments once per completed game, unlocks at three games, grants a tunable `40` coins, resets progress, and persists the reset.
+- Yip moments: loading tips, logo/summary peek animations, and FTUE portrait/name/text refinements are implemented. Gameplay reactions should stay sparse.
+- Camera/movement: route overview duration is now `1.15s`, preview FOV gets a temporary `+8` degree boost, yaw orbit wraps instead of clamping, and portal exits add a minimum horizontal impulse.
+- Open risk: reported undermap-island clipping/spawn-inside cases still need targeted collision/placement work and seed coverage.
 
 ## Platform Service Replacement Notes
 

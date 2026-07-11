@@ -27,6 +27,7 @@ Cross-check against Meta’s **Snackable Games & AI Templates** external develop
 | AI edits shallow layers | Theme swaps via `AssetKey` tables; tuning constants |
 | Preserve core mechanic | Keep physics + surface + hazard contracts stable ([`DATA_CONTRACTS.md`](./DATA_CONTRACTS.md)) |
 | Avoid AI mesh surgery | [`MANUS_AND_AI_BOUNDARIES.md`](./MANUS_AND_AI_BOUNDARIES.md) |
+| Use AI where it is strong | 2D/UI art, docs, data, and validated rule changes; 3D/audio stay candidate assets until reviewed |
 
 ## Action items when prioritizing snackables
 

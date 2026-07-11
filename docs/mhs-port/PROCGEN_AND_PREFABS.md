@@ -4,6 +4,8 @@ Describes how procedural maps become instances you can recreate in **Meta Horizo
 
 Full generator rules: [`../PROCGEN.md`](../PROCGEN.md).
 
+Current Studio runtime generation is implemented in `putt_realms/scripts/puttrealms/procgen/RuntimeProcgenCourse.ts` and its `ProcgenCourseSpawnV1` includes tiles, surfaces, rails, hazards, undermap islands, and decor. The notes below are still useful for the web-to-MHS data boundary, but the active MHS agent docs in `putt_realms/Docs` supersede any older "first slice only" wording.
+
 ## Pipeline recap
 
 1. `MapGenerationEndpoint.generateMap(GenerateMapRequest)` → `GeneratedMap`.

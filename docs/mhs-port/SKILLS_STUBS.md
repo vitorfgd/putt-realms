@@ -1,5 +1,7 @@
 # Assistant / skills stubs (future MHE repo)
 
+Current project-specific skills now exist in `putt_realms/Assistant/skills`. Treat this file as historical planning for the web-port docs, not the active Studio skill source.
+
 Meta’s internal **Best Practices** documentation describes an `Assistant/skills/` tree (e.g. `scripting/`, `scene/`, `mesh_gen/`) for agent workflows. **Do not copy proprietary skill files** from Meta into this repo.
 
 Instead, when you create the Horizon project, add **project-specific** skills that wrap **Putt Realms tasks** below. Each stub lists **inputs**, **outputs**, and **verification**.

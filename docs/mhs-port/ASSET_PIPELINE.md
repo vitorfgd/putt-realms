@@ -70,3 +70,4 @@ The code-level backlog is `MHS_ASSET_OPTIMIZATION_BACKLOG`; it also tracks `scen
 - One **prefab/template per logical variant** (straight, convex corner, ramp pair, each hazard).
 - Each course tile template keeps `VisualRoot` and `Collider` children and a deck-center root; use `ProcgenCourseSpawnV1.templateCalibrations[]` as the binding checklist.
 - Avoid runtime mesh booleans or AI-generated topology for course tiles; keep variation in **transform + data** ([`PROCGEN_AND_PREFABS.md`](./PROCGEN_AND_PREFABS.md)).
+- Treat AI-generated meshes as candidate assets until Studio import, `:template` creation, scale/pivot/collision review, child-name verification, and runtime readability checks are complete.

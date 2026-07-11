@@ -6,6 +6,7 @@ This folder is a **documentation pack** for moving Putt Realms from the current 
 
 - **Not official Meta documentation.** API names, package versions, and editor behavior change. When your team has the latest MHS docs, **reconcile or replace** any MHE-specific notes in these files.
 - **Source of truth for game behavior** remains the TypeScript in `src/` and the existing technical reference [`../PROCGEN.md`](../PROCGEN.md).
+- **Current Studio AI guidance** lives in `putt_realms/Docs/AI_AGENT_CAPABILITIES.md` and `putt_realms/Docs/MANUS_AI_OPERATING_GUIDE.md`; these web-port files are historical planning context when they disagree.
 
 ## Local reference archive (deprecated copy)
 
@@ -30,8 +31,11 @@ Useful files there include `Best Practices.md`, `TypeScript in MHE2.md`, and the
 | [PORT_READINESS_ROADMAP.md](./PORT_READINESS_ROADMAP.md) | Current pre-port boundary, do-not-port list, readiness milestones |
 | [FINAL_3D_PORT_HANDOFF.md](./FINAL_3D_PORT_HANDOFF.md) | Final 3D MHS bootstrap, template, event, audio, pooling, and service plan |
 | [DRY_RUN_PORT_MAP.md](./DRY_RUN_PORT_MAP.md) | File-area classification for portable, web-only, future MHS replacement, asset-pipeline, and excluded work |
+| [RUNTIME_UPDATE_2026-05-26.md](./RUNTIME_UPDATE_2026-05-26.md) | Dated MHS runtime/UI/economy/camera changes from May 26, 2026 |
 
 Current code seams for the port: `src/core/HoleSession.ts`, `src/level/GeneratedLevelV1.ts`, `src/mhs/PrefabRegistry.ts`, `src/mhs/MhsSpawnManifest.ts`, `src/hazards/HazardSimulationContract.ts`, `src/platform/PlatformServices.ts`, `src/platform-browser/BrowserPlatformServices.ts`, and `src/ui/UiState.ts`.
+
+Current Studio runtime work also touches `putt_realms/scripts/puttrealms/ui`, `putt_realms/scripts/puttrealms/components/PuttRealmsProcgenPreview.ts`, `putt_realms/scripts/puttrealms/components/PuttRealmsCourseCamera.ts`, and `putt_realms/scripts/puttrealms/components/MhsBallPhysics.ts`.
 
 ## Current audit and risk register
 
